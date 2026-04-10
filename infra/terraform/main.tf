@@ -4,6 +4,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~>3.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~>3.0"
+    }
   }
 }
 
@@ -15,7 +19,7 @@ data "azurerm_client_config" "current" {}
 
 resource "azurerm_resource_group" "rg" {
   name     = "visitor-counter-rg"
-  location = "West Europe"
+  location = var.location
 }
 
 resource "azurerm_container_registry" "acr" {
@@ -26,7 +30,7 @@ resource "azurerm_container_registry" "acr" {
 }
 
 resource "azurerm_key_vault" "kv" {
-  name                        = "visitor-counter-kv"
+  name                        = "visitor-counter-kv-20260410"
   location                    = azurerm_resource_group.rg.location
   resource_group_name         = azurerm_resource_group.rg.name
   enabled_for_disk_encryption = true
@@ -37,13 +41,32 @@ resource "azurerm_key_vault" "kv" {
   sku_name = "standard"
 }
 
+resource "azurerm_key_vault_access_policy" "current" {
+  key_vault_id = azurerm_key_vault.kv.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = data.azurerm_client_config.current.object_id
+
+  secret_permissions = [
+    "get",
+    "list",
+    "set",
+    "delete",
+  ]
+}
+
+resource "random_password" "postgres_admin" {
+  length           = 20
+  override_special = "!@#$%&*()-_=+[]{}<>?"
+  special          = true
+}
+
 resource "azurerm_postgresql_flexible_server" "postgres" {
   name                   = "visitor-counter-postgres"
   resource_group_name    = azurerm_resource_group.rg.name
   location               = azurerm_resource_group.rg.location
   version                = "15"
   administrator_login    = "postgresadmin"
-  administrator_password = "TempPassword123!"
+  administrator_password = random_password.postgres_admin.result
   storage_mb             = 32768
   sku_name               = "B_Standard_B1ms"
 }
@@ -62,12 +85,23 @@ resource "azurerm_kubernetes_cluster" "aks" {
   default_node_pool {
     name       = "default"
     node_count = 1
-    vm_size    = "Standard_B2s"
+    vm_size    = "Standard_B2ms_v2"
   }
 
   identity {
     type = "SystemAssigned"
   }
+}
+
+resource "azurerm_key_vault_access_policy" "aks_identity" {
+  key_vault_id = azurerm_key_vault.kv.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
+
+  secret_permissions = [
+    "get",
+    "list",
+  ]
 }
 
 # Key Vault secrets
@@ -84,8 +118,13 @@ resource "azurerm_key_vault_secret" "db_user" {
 }
 
 resource "azurerm_key_vault_secret" "db_password" {
-  name         = "db-password"
-  value        = azurerm_postgresql_flexible_server.postgres.administrator_password
+  name         = "ConnectionStrings--DefaultConnection"
+  value        = format(
+    "Host=%s;Database=visitorcounter;Username=%s;Password=%s",
+    azurerm_postgresql_flexible_server.postgres.fqdn,
+    azurerm_postgresql_flexible_server.postgres.administrator_login,
+    random_password.postgres_admin.result,
+  )
   key_vault_id = azurerm_key_vault.kv.id
 }
 
