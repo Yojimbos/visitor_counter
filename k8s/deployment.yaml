@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: visitor-counter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: visitor-counter
+  template:
+    metadata:
+      labels:
+        app: visitor-counter
+    spec:
+      containers:
+      - name: visitor-counter
+        image: visitorcounteracr.azurecr.io/visitor-counter:latest
+        ports:
+        - containerPort: 80
+        env:
+        - name: ConnectionStrings__DefaultConnection
+          value: "Host=$(DB_HOST);Database=visitorcounter;Username=$(DB_USER);Password=$(DB_PASSWORD)"
+        envFrom:
+        - configMapRef:
+            name: visitor-counter-config
+        - secretRef:
+            name: visitor-counter-secret
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000

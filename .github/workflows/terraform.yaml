@@ -1,0 +1,33 @@
+name: Terraform
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'infra/terraform/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'infra/terraform/**'
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Terraform Init
+      run: terraform init
+      working-directory: infra/terraform
+    - name: Terraform Plan
+      run: terraform plan
+      working-directory: infra/terraform
+    - name: Terraform Apply
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: terraform apply -auto-approve
+      working-directory: infra/terraform
