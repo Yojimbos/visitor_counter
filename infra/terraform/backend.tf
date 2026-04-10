@@ -4,6 +4,5 @@ terraform {
     storage_account_name = "visitorcounterstate"
     container_name       = "tfstate"
     key                  = "visitor-counter.terraform.tfstate"
-    use_azuread_auth     = true
   }
 }
