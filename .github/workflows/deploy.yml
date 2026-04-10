@@ -39,6 +39,11 @@ jobs:
           az account show
           az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.7.0
+
       - name: Check and provision infrastructure
         run: |
           # Check if AKS cluster exists
@@ -47,11 +52,16 @@ jobs:
           else
             echo "⚠ AKS cluster not found. Provisioning infrastructure with Terraform..."
             cd infra/terraform
-            terraform init -backend=false
-            terraform plan -out=tfplan
-            terraform apply tfplan
+            terraform init -input=false
+            terraform plan -out=tfplan -input=false
+            terraform apply -auto-approve tfplan
             cd ../../
           fi
+
+      - name: Validate AKS cluster exists
+        run: |
+          echo "Validating AKS cluster '${AKS_CLUSTER_NAME}' in '${AKS_RESOURCE_GROUP}'"
+          az aks show --resource-group $AKS_RESOURCE_GROUP --name $AKS_CLUSTER_NAME
 
       - name: Discover ACR registry name
         run: |
