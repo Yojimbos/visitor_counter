@@ -53,22 +53,39 @@ The application is a simple visitor counter that increments a counter in Azure D
 
 1. Add secrets to Azure Key Vault (done via Terraform).
 
-2. For GitHub Actions, add the following secrets:
-   - `AZURE_CREDENTIALS`: Service principal credentials
-   - `ACR_LOGIN_SERVER`: ACR login server
-   - `ACR_USERNAME`: ACR username
-   - `ACR_PASSWORD`: ACR password
+2. For GitHub Actions, add the following secrets to your repository:
+   - `AZURE_SUBSCRIPTION_ID`: Your Azure subscription ID
+   - `AZURE_TENANT_ID`: Your Azure tenant ID
+   - `AZURE_CLIENT_ID`: Service principal client ID
+   - `AZURE_CLIENT_SECRET`: Service principal client secret
+   - `AZURE_CREDENTIALS`: Service principal credentials (JSON format)
+
+   Generate credentials:
+   ```bash
+   az ad sp create-for-rbac --name "github-actions" \
+     --role Contributor \
+     --scopes /subscriptions/{SUBSCRIPTION_ID} \
+     --json-auth
+   ```
 
 ### 3. Build and Deploy
 
-1. Push to main branch to trigger CI/CD pipeline.
+**Automated via GitHub Actions:**
+- Push to `main` or `develop` branch triggers build pipeline
+- Image is tagged with **git commit hash** (e.g., `a1b2c3d`)
+- Pipeline automatically deploys to AKS
 
-2. The pipeline will:
-   - Build Docker image
-   - Push to ACR
-   - Deploy to AKS
+**Manual deployment instructions:** See [BUILD_AND_DEPLOYMENT.md](docs/BUILD_AND_DEPLOYMENT.md)
 
-### 4. DNS and TLS
+### 4. Image Tagging Strategy
+
+- **Production**: Git commit hash (e.g., `visitorcounteracr.azurecr.io/visitor-counter:a1b2c3d`)
+- ✅ Traceable, immutable, safe for production
+- ✅ NO `latest` tag to prevent unpredictable rollouts
+- ✅ Full deployment history in git commits
+
+### 5. DNS and TLS
+
 
 1. Update `k8s/ingress.yaml` with your domain.
 2. Install cert-manager and NGINX Ingress Controller on AKS.

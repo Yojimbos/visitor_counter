@@ -1,0 +1,71 @@
+name: Deploy to AKS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'k8s/**'
+      - '.github/workflows/deploy.yml'
+  workflow_run:
+    workflows: ["Build and Push to ACR"]
+    types:
+      - completed
+    branches:
+      - main
+
+env:
+  AKS_CLUSTER_NAME: visitor-counter-aks
+  AKS_RESOURCE_GROUP: visitor-counter-rg
+  REGISTRY_NAME: visitorcounteracr
+  IMAGE_NAME: visitor-counter
+  NAMESPACE: default
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'push' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group $AKS_RESOURCE_GROUP \
+            --name $AKS_CLUSTER_NAME
+
+      - name: Get latest image tag from ACR
+        id: acr_tag
+        run: |
+          LATEST_TAG=$(az acr repository show-tags \
+            --name $REGISTRY_NAME \
+            --repository $IMAGE_NAME \
+            --orderby time_desc \
+            --query '[0]' -o tsv)
+          echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+          echo "Latest image tag: ${LATEST_TAG}"
+
+      - name: Deploy to Kubernetes
+        run: |
+          # Update deployment image with the latest tag
+          sed -i "s/\$(GIT_COMMIT_HASH)/${{ steps.acr_tag.outputs.tag }}/g" k8s/deployment.yaml
+          
+          # Apply all K8s resources
+          kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f k8s/secret.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/ingress.yaml
+          kubectl apply -f k8s/hpa.yaml
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/visitor-counter -n $NAMESPACE --timeout=5m
+          kubectl get pods -n $NAMESPACE -l app=visitor-counter

@@ -14,7 +14,8 @@ spec:
     spec:
       containers:
       - name: visitor-counter
-        image: visitorcounteracr.azurecr.io/visitor-counter:latest
+        image: visitorcounteracr.azurecr.io/visitor-counter:$(GIT_COMMIT_HASH)
+        imagePullPolicy: Always
         ports:
         - containerPort: 80
         env:

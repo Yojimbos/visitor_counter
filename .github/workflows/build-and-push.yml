@@ -1,0 +1,70 @@
+name: Build and Push to ACR
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'src/**'
+      - 'Dockerfile'
+      - '.github/workflows/build-and-push.yml'
+
+env:
+  REGISTRY_NAME: visitorcounteracr
+  IMAGE_NAME: visitor-counter
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set image tag (git commit hash)
+        id: image_tag
+        run: |
+          GIT_HASH=$(git rev-parse --short HEAD)
+          echo "tag=${GIT_HASH}" >> $GITHUB_OUTPUT
+          echo "Image will be tagged as: ${GIT_HASH}"
+
+      - name: Azure login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Build and push to ACR
+        run: |
+          az acr build \
+            --registry $REGISTRY_NAME \
+            --image $IMAGE_NAME:${{ steps.image_tag.outputs.tag }} \
+            --file src/VisitorCounter/Dockerfile \
+            ./src/VisitorCounter
+
+      - name: Also tag as latest
+        run: |
+          az acr repository update \
+            --name $REGISTRY_NAME \
+            --image $IMAGE_NAME:${{ steps.image_tag.outputs.tag }} \
+            --set-manifest $IMAGE_NAME:latest || true
+
+      - name: Update deployment image tag
+        run: |
+          sed -i "s/\$(GIT_COMMIT_HASH)/${{ steps.image_tag.outputs.tag }}/g" k8s/deployment.yaml
+          echo "Updated deployment.yaml with image tag: ${{ steps.image_tag.outputs.tag }}"
+
+      - name: Commit updated deployment
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add k8s/deployment.yaml
+          git commit -m "chore: update image tag to ${{ steps.image_tag.outputs.tag }}" || echo "No changes to commit"
+          git push || echo "No push needed"
