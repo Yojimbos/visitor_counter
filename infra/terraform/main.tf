@@ -21,7 +21,7 @@ data "azurerm_client_config" "current" {}
 
 resource "azurerm_resource_group" "rg" {
   name     = "visitor-counter-rg"
-  location = "East US"
+  location = "West Europe"
 }
 
 resource "azurerm_container_registry" "acr" {
