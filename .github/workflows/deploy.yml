@@ -39,34 +39,14 @@ jobs:
           az account show
           az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.7.0
-
-      - name: Check and provision infrastructure
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      - name: Verify AKS cluster exists
         run: |
-          # Check if AKS cluster exists
-          if az aks show --resource-group $AKS_RESOURCE_GROUP --name $AKS_CLUSTER_NAME &>/dev/null; then
-            echo "✓ AKS cluster already exists"
-          else
-            echo "⚠ AKS cluster not found. Provisioning infrastructure with Terraform..."
-            cd infra/terraform
-            terraform init -input=false
-            terraform plan -out=tfplan -input=false
-            terraform apply -auto-approve tfplan
-            cd ../../
+          echo "Verifying AKS cluster '${AKS_CLUSTER_NAME}' in '${AKS_RESOURCE_GROUP}'..."
+          if ! az aks show --resource-group $AKS_RESOURCE_GROUP --name $AKS_CLUSTER_NAME &>/dev/null; then
+            echo "ERROR: AKS cluster not found. Please run the provision job in CI/CD pipeline first."
+            exit 1
           fi
-
-      - name: Validate AKS cluster exists
-        run: |
-          echo "Validating AKS cluster '${AKS_CLUSTER_NAME}' in '${AKS_RESOURCE_GROUP}'"
-          az aks show --resource-group $AKS_RESOURCE_GROUP --name $AKS_CLUSTER_NAME
+          echo "✓ AKS cluster exists and is ready"
 
       - name: Discover ACR registry name
         run: |
@@ -80,28 +60,22 @@ jobs:
             --resource-group $AKS_RESOURCE_GROUP \
             --name $AKS_CLUSTER_NAME
 
-      - name: Retrieve and inject database password
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      - name: Retrieve database password from Key Vault
         run: |
-          # Get PostgreSQL password from outputs or artifacts
-          cd infra/terraform
-          DB_PASSWORD=$(terraform output -raw postgres_admin_password 2>/dev/null || echo "")
-          if [ -z "$DB_PASSWORD" ]; then
-            # If not available, retrieve from Key Vault
-            KEYVAULT_NAME=$(az keyvault list --resource-group $AKS_RESOURCE_GROUP --query "[0].name" -o tsv)
-            DB_PASSWORD=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name postgres-password --query value -o tsv 2>/dev/null || echo "")
+          # Retrieve PostgreSQL password from Key Vault
+          KEYVAULT_NAME=$(az keyvault list --resource-group $AKS_RESOURCE_GROUP --query "[0].name" -o tsv)
+          if [ -z "$KEYVAULT_NAME" ]; then
+            echo "ERROR: No Key Vault found in resource group"
+            exit 1
           fi
-          cd ../../
+          
+          DB_PASSWORD=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name postgres-password --query value -o tsv 2>/dev/null || echo "")
           
           if [ -n "$DB_PASSWORD" ]; then
             sed -i "s|DB_PASSWORD:.*|DB_PASSWORD: $DB_PASSWORD|g" k8s/secret.yaml
-            echo "✓ Database password injected"
+            echo "✓ Database password injected from Key Vault"
           else
-            echo "⚠ Could not retrieve database password"
+            echo "⚠ Could not retrieve database password from Key Vault"
           fi
 
       - name: Get latest image tag from ACR
