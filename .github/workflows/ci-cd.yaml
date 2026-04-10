@@ -11,7 +11,7 @@ env:
   IMAGE_NAME: visitor-counter
 
 jobs:
-  build-and-push:
+  provision:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -19,6 +19,38 @@ jobs:
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Set Azure subscription
+      run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    - name: Prepare Terraform backend storage
+      run: |
+        az group create --name visitor-counter-rg --location WestEurope
+        az storage account create --name visitorcounterstate --resource-group visitor-counter-rg --sku Standard_LRS --kind StorageV2 --access-tier Hot || true
+        az storage container create --name tfstate --account-name visitorcounterstate || true
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: 1.7.0
+    - name: Terraform init
+      run: |
+        cd infra/terraform
+        terraform init -input=false
+    - name: Terraform apply
+      run: |
+        cd infra/terraform
+        terraform plan -out=tfplan -input=false
+        terraform apply -auto-approve tfplan
+
+  build-and-push:
+    needs: provision
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Set Azure subscription
+      run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     - name: Build and push Docker image
       run: |
         docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} ./src/VisitorCounter
@@ -34,6 +66,8 @@ jobs:
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Set Azure subscription
+      run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     - name: Set AKS context
       run: az aks get-credentials --resource-group visitor-counter-rg --name visitor-counter-aks
     - name: Deploy to AKS
