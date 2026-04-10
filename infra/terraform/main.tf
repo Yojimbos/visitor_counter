@@ -17,6 +17,11 @@ provider "azurerm" {
 
 data "azurerm_client_config" "current" {}
 
+locals {
+  suffix     = substr(replace(lower(data.azurerm_client_config.current.subscription_id), "-", ""), 0, 6)
+  dns_prefix = "visitorcounter${local.suffix}"
+}
+
 resource "azurerm_resource_group" "rg" {
   name     = "visitor-counter-rg"
   location = var.location
@@ -30,7 +35,7 @@ resource "azurerm_container_registry" "acr" {
 }
 
 resource "azurerm_key_vault" "kv" {
-  name                        = "visitor-counter-kv-20260410"
+  name                        = "visitor-kv-20260410"
   location                    = azurerm_resource_group.rg.location
   resource_group_name         = azurerm_resource_group.rg.name
   enabled_for_disk_encryption = true
@@ -47,10 +52,10 @@ resource "azurerm_key_vault_access_policy" "current" {
   object_id    = data.azurerm_client_config.current.object_id
 
   secret_permissions = [
-    "get",
-    "list",
-    "set",
-    "delete",
+    "Get",
+    "List",
+    "Set",
+    "Delete",
   ]
 }
 
@@ -76,11 +81,17 @@ resource "azurerm_postgresql_flexible_server_database" "db" {
   server_id = azurerm_postgresql_flexible_server.postgres.id
 }
 
+resource "azurerm_key_vault_secret" "postgres_password" {
+  name         = "postgres-password"
+  value        = random_password.postgres_admin.result
+  key_vault_id = azurerm_key_vault.kv.id
+}
+
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = "visitor-counter-aks"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-  dns_prefix          = "visitorcounter"
+  dns_prefix          = local.dns_prefix
 
   default_node_pool {
     name       = "default"
@@ -99,8 +110,8 @@ resource "azurerm_key_vault_access_policy" "aks_identity" {
   object_id    = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
 
   secret_permissions = [
-    "get",
-    "list",
+    "Get",
+    "List",
   ]
 }
 

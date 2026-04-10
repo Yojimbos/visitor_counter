@@ -17,7 +17,6 @@ on:
 env:
   AKS_CLUSTER_NAME: visitor-counter-aks
   AKS_RESOURCE_GROUP: visitor-counter-rg
-  REGISTRY_NAME: visitorcounteracr
   IMAGE_NAME: visitor-counter
   NAMESPACE: default
 
@@ -40,11 +39,50 @@ jobs:
           az account show
           az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Check and provision infrastructure
+        run: |
+          # Check if AKS cluster exists
+          if az aks show --resource-group $AKS_RESOURCE_GROUP --name $AKS_CLUSTER_NAME &>/dev/null; then
+            echo "✓ AKS cluster already exists"
+          else
+            echo "⚠ AKS cluster not found. Provisioning infrastructure with Terraform..."
+            cd infra/terraform
+            terraform init -backend=false
+            terraform plan -out=tfplan
+            terraform apply tfplan
+            cd ../../
+          fi
+
+      - name: Discover ACR registry name
+        run: |
+          REGISTRY_NAME=$(az acr list --resource-group $AKS_RESOURCE_GROUP --query "[?starts_with(name, 'visitorcounteracr')].name | [0]" -o tsv)
+          echo "REGISTRY_NAME=${REGISTRY_NAME}" >> $GITHUB_ENV
+          echo "Using ACR registry: ${REGISTRY_NAME}"
+
       - name: Get AKS credentials
         run: |
           az aks get-credentials \
             --resource-group $AKS_RESOURCE_GROUP \
             --name $AKS_CLUSTER_NAME
+
+      - name: Retrieve and inject database password
+        run: |
+          # Get PostgreSQL password from outputs or artifacts
+          cd infra/terraform
+          DB_PASSWORD=$(terraform output -raw postgres_admin_password 2>/dev/null || echo "")
+          if [ -z "$DB_PASSWORD" ]; then
+            # If not available, retrieve from Key Vault
+            KEYVAULT_NAME=$(az keyvault list --resource-group $AKS_RESOURCE_GROUP --query "[0].name" -o tsv)
+            DB_PASSWORD=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name postgres-password --query value -o tsv 2>/dev/null || echo "")
+          fi
+          cd ../../
+          
+          if [ -n "$DB_PASSWORD" ]; then
+            sed -i "s|DB_PASSWORD:.*|DB_PASSWORD: $DB_PASSWORD|g" k8s/secret.yaml
+            echo "✓ Database password injected"
+          else
+            echo "⚠ Could not retrieve database password"
+          fi
 
       - name: Get latest image tag from ACR
         id: acr_tag
@@ -64,12 +102,21 @@ jobs:
           
           # Apply all K8s resources
           kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f k8s/secret.yaml
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
           kubectl apply -f k8s/ingress.yaml
           kubectl apply -f k8s/hpa.yaml
+          
+          echo "✓ Kubernetes resources deployed"
 
       - name: Verify deployment
         run: |
+          echo "Waiting for deployment to be ready..."
           kubectl rollout status deployment/visitor-counter -n $NAMESPACE --timeout=5m
+          echo "✓ Deployment is ready"
+          
+          echo "Listing pods..."
           kubectl get pods -n $NAMESPACE -l app=visitor-counter
+          
+          echo "✓ Deployment verification complete"

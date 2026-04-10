@@ -11,7 +11,6 @@ on:
       - '.github/workflows/build-and-push.yml'
 
 env:
-  REGISTRY_NAME: visitorcounteracr
   IMAGE_NAME: visitor-counter
   AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -42,10 +41,17 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure correct Azure subscription
+      - name: Ensure correct Azure subscription and discover ACR
         run: |
           az account show
           az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          REGISTRY_NAME=$(az acr list --resource-group visitor-counter-rg --query "[?starts_with(name, 'visitorcounteracr')].name | [0]" -o tsv)
+          if [ -z "$REGISTRY_NAME" ]; then
+            echo "ERROR: ACR not found. Ensure infrastructure is provisioned."
+            exit 1
+          fi
+          echo "REGISTRY_NAME=${REGISTRY_NAME}" >> $GITHUB_ENV
+          echo "Using ACR: $REGISTRY_NAME"
           az acr check-health -n $REGISTRY_NAME --yes
 
       - name: Build and push to ACR
@@ -55,6 +61,8 @@ jobs:
             --image $IMAGE_NAME:${{ steps.image_tag.outputs.tag }} \
             --file src/VisitorCounter/Dockerfile \
             ./src/VisitorCounter
+          
+          echo "✓ Image pushed: $IMAGE_NAME:${{ steps.image_tag.outputs.tag }}"
 
       - name: Also tag as latest
         run: |
@@ -62,6 +70,8 @@ jobs:
             --name $REGISTRY_NAME \
             --image $IMAGE_NAME:${{ steps.image_tag.outputs.tag }} \
             --set-manifest $IMAGE_NAME:latest || true
+          
+          echo "✓ Latest tag updated"
 
       - name: Update deployment image tag
         run: |
