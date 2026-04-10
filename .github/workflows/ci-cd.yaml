@@ -15,15 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - name: Login to ACR
-      uses: azure/docker-login@v1
+    - name: Azure Login
+      uses: azure/login@v1
       with:
-        login-server: ${{ secrets.ACR_LOGIN_SERVER }}
-        username: ${{ secrets.ACR_USERNAME }}
-        password: ${{ secrets.ACR_PASSWORD }}
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
     - name: Build and push Docker image
       run: |
         docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} ./src/VisitorCounter
+        az acr login --name ${{ env.ACR_NAME }}
         docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
   deploy:
@@ -39,5 +38,5 @@ jobs:
       run: az aks get-credentials --resource-group visitor-counter-rg --name visitor-counter-aks
     - name: Deploy to AKS
       run: |
-        sed -i 's|visitorcounteracr.azurecr.io/visitor-counter:latest|visitorcounteracr.azurecr.io/visitor-counter:${{ github.sha }}|g' k8s/deployment.yaml
+        kubectl set image deployment/visitor-counter visitor-counter=${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
         kubectl apply -f k8s/

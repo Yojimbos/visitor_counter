@@ -1,4 +1,9 @@
+using Azure.Identity;
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Configuration.AddAzureKeyVault(
+    new Uri("https://visitor-counter-kv.vault.azure.net/"),
+    new DefaultAzureCredential());
 
 // Add services to the container.
 builder.Services.AddRazorPages();
