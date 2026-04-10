@@ -72,16 +72,17 @@ The application is a simple visitor counter that increments a counter in Azure D
 
 **Automated via GitHub Actions:**
 - Push to `main` or `develop` branch triggers build pipeline
-- Image is tagged with **git commit hash** (e.g., `a1b2c3d`)
+- Image is tagged with **timestamp + commit hash** (e.g., `20260410-143022-7a85828`)
 - Pipeline automatically deploys to AKS
 
 **Manual deployment instructions:** See [BUILD_AND_DEPLOYMENT.md](docs/BUILD_AND_DEPLOYMENT.md)
 
 ### 4. Image Tagging Strategy
 
-- **Production**: Git commit hash (e.g., `visitorcounteracr.azurecr.io/visitor-counter:a1b2c3d`)
-- ✅ Traceable, immutable, safe for production
-- ✅ NO `latest` tag to prevent unpredictable rollouts
+- **Production**: Timestamp + short commit hash (e.g., `visitorcounteracr.azurecr.io/visitor-counter:20260410-143022-7a85828`)
+- ✅ Shows build time and commit reference
+- ✅ Easy to identify newer versions by timestamp
+- ✅ Safe for production (no `latest` tag)
 - ✅ Full deployment history in git commits
 
 ### 5. DNS and TLS

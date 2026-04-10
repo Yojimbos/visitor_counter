@@ -9,16 +9,21 @@ The project uses GitHub Actions for automated building and deployment:
 
 ## Image Tagging Strategy
 
-**Best Practice: Git Commit Hash**
+**Best Practice: Timestamp + Short Commit Hash**
 
-- Each image is tagged with the first 7 characters of the git commit SHA
-- Example: `visitorcounteracr.azurecr.io/visitor-counter:a1b2c3d`
+- Each image is tagged with timestamp + 7-character commit hash
+- Example: `visitorcounteracr.azurecr.io/visitor-counter:20260410-143022-7a85828`
 - Benefits:
-  - ✅ Uniquely identifies each build
-  - ✅ Fully traceable to source code
-  - ✅ Immutable and reproducible
+  - ✅ Shows build time (when image was created)
+  - ✅ Includes commit reference for traceability
+  - ✅ Easy to identify newer versions by timestamp
   - ✅ Safe alternative to `latest` tag in production
   - ✅ Works perfectly with CI/CD
+
+**Why NOT use full commit hash:**
+- ❌ Too long and hard to read
+- ❌ No indication of build time
+- ❌ Difficult to compare versions
 
 **Why NOT use `latest` tag:**
 - ❌ No version tracking
@@ -82,12 +87,12 @@ Build locally:
 ```bash
 # Build image with git commit hash
 GIT_HASH=$(git rev-parse --short HEAD)
-docker build -t visitorcounteracr.azurecr.io/visitor-counter:${GIT_HASH} \
+docker build -t visitorcounteracr.azurecr.io/visitor-counter:${TIMESTAMP}-${SHORT_COMMIT} \
   ./src/VisitorCounter
 
 # Push to ACR
 az acr login --name visitorcounteracr
-docker push visitorcounteracr.azurecr.io/visitor-counter:${GIT_HASH}
+docker push visitorcounteracr.azurecr.io/visitor-counter:${TIMESTAMP}-${SHORT_COMMIT}
 ```
 
 Update deployment:
