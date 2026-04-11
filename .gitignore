@@ -16,6 +16,7 @@
 *.tfstate.backup
 terraform.tfstate.d/
 *.tfvars
+tfplan
 
 # Logs
 *.log

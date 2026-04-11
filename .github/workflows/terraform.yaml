@@ -34,7 +34,7 @@ jobs:
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: terraform apply -auto-approve
       working-directory: infra/terraform
-    - name: Cleanup Backend Configuration
+    - name: Cleanup
       if: always()
       run: |
         rm -f terraform.tfstate terraform.tfstate.backup
