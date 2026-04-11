@@ -66,9 +66,9 @@ resource "random_password" "postgres_admin" {
 }
 
 resource "azurerm_postgresql_flexible_server" "postgres" {
-  name                   = "visitor-counter-postgres"
+  name                   = "visitor-counter-postgres-ne"
   resource_group_name    = azurerm_resource_group.rg.name
-  location               = azurerm_resource_group.rg.location
+  location               = "North Europe"
   version                = "15"
   administrator_login    = "postgresadmin"
   administrator_password = random_password.postgres_admin.result
@@ -87,20 +87,46 @@ resource "azurerm_key_vault_secret" "postgres_password" {
   key_vault_id = azurerm_key_vault.kv.id
 }
 
+resource "azurerm_virtual_network" "visitor-counter_vnet" {
+  name                = "visitor-counter-vnet"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  address_space       = ["10.0.0.0/16"]
+}
+
+resource "azurerm_subnet" "aks_subnet" {
+  name                 = "${var.aks_cluster_name}-subnet"
+  resource_group_name  = azurerm_resource_group.rg.name
+  virtual_network_name = azurerm_virtual_network.visitor-counter_vnet.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
+
 resource "azurerm_kubernetes_cluster" "aks" {
-  name                = "visitor-counter-aks"
+  depends_on = [azurerm_subnet.aks_subnet]
+
+  name                = var.aks_cluster_name
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   dns_prefix          = local.dns_prefix
+  kubernetes_version  = var.aks_version
+
+  oidc_issuer_enabled = true
 
   default_node_pool {
     name       = "default"
     node_count = 1
-    vm_size    = "Standard_B2ms_v2"
+    vm_size    = var.aks_node_size
   }
 
   identity {
     type = "SystemAssigned"
+  }
+
+    network_profile {
+    network_plugin    = "azure"
+    load_balancer_sku = "standard"
+    service_cidr      = "10.2.0.0/16"
+    dns_service_ip    = "10.2.0.10"
   }
 }
 

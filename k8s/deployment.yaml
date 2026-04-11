@@ -14,13 +14,15 @@ spec:
     spec:
       containers:
       - name: visitor-counter
-        image: visitorcounteracr.azurecr.io/visitor-counter:$(GIT_COMMIT_HASH)
+        image: nginx:alpine
         imagePullPolicy: Always
         ports:
         - containerPort: 80
         envFrom:
         - configMapRef:
             name: visitor-counter-config
+        - secretRef:
+            name: visitor-counter-secret
         livenessProbe:
           httpGet:
             path: /
@@ -41,5 +43,5 @@ spec:
             memory: "256Mi"
             cpu: "200m"
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
+        runAsNonRoot: false
+        runAsUser: 0

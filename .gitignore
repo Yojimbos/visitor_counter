@@ -1,0 +1,29 @@
+# Visual Studio / VS Code
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+
+# Build artifacts
+**/bin/
+**/obj/
+
+# Terraform local files
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+terraform.tfstate.d/
+*.tfvars
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Azure CLI and local tools
+.azure-kubectl/
+.azure-kubelogin/
