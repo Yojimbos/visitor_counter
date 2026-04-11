@@ -57,6 +57,10 @@ resource "azurerm_key_vault_access_policy" "current" {
     "Set",
     "Delete",
   ]
+  
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 resource "random_password" "postgres_admin" {
@@ -92,6 +96,10 @@ resource "azurerm_key_vault_secret" "postgres_password" {
   name         = "postgres-password"
   value        = random_password.postgres_admin.result
   key_vault_id = azurerm_key_vault.kv.id
+  
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 resource "azurerm_virtual_network" "visitor-counter_vnet" {
@@ -146,6 +154,10 @@ resource "azurerm_key_vault_access_policy" "aks_identity" {
     "Get",
     "List",
   ]
+  
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 # Key Vault secrets
@@ -153,12 +165,20 @@ resource "azurerm_key_vault_secret" "db_host" {
   name         = "db-host"
   value        = azurerm_postgresql_flexible_server.postgres.fqdn
   key_vault_id = azurerm_key_vault.kv.id
+  
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 resource "azurerm_key_vault_secret" "db_user" {
   name         = "db-user"
   value        = azurerm_postgresql_flexible_server.postgres.administrator_login
   key_vault_id = azurerm_key_vault.kv.id
+  
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 resource "azurerm_key_vault_secret" "db_password" {
@@ -170,12 +190,20 @@ resource "azurerm_key_vault_secret" "db_password" {
     random_password.postgres_admin.result,
   )
   key_vault_id = azurerm_key_vault.kv.id
+  
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 resource "azurerm_key_vault_secret" "acr_login_server" {
   name         = "acr-login-server"
   value        = azurerm_container_registry.acr.login_server
   key_vault_id = azurerm_key_vault.kv.id
+  
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 # RBAC for AKS to access ACR
@@ -184,4 +212,9 @@ resource "azurerm_role_assignment" "aks_acr" {
   role_definition_name             = "AcrPull"
   scope                            = azurerm_container_registry.acr.id
   skip_service_principal_aad_check = true
+  
+  lifecycle {
+    ignore_changes = all
+    create_before_destroy = true
+  }
 }

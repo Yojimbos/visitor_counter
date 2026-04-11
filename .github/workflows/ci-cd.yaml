@@ -40,6 +40,7 @@ jobs:
         
         SUBSCRIPTION_ID=$(az account show --query id -o tsv)
         RG_NAME="visitor-counter-rg"
+        KV_NAME="visitor-kv-20260410"
         
         # Import resource group
         if az group exists --name $RG_NAME | grep -q true; then
@@ -84,10 +85,30 @@ jobs:
         fi
         
         # Import Key Vault if it exists
-        if az keyvault show --resource-group $RG_NAME --name visitor-kv-20260410 2>/dev/null; then
+        if az keyvault show --resource-group $RG_NAME --name $KV_NAME 2>/dev/null; then
           echo "Importing Key Vault..."
-          terraform import -input=false azurerm_key_vault.kv /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/visitor-kv-20260410 || true
+          terraform import -input=false azurerm_key_vault.kv /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME || true
         fi
+        
+        # Import Key Vault access policies
+        echo "Importing Key Vault access policies..."
+        CURRENT_OBJECT_ID=$(az ad signed-in-user show --query objectId -o tsv 2>/dev/null || echo "")
+        if [ -n "$CURRENT_OBJECT_ID" ]; then
+          terraform import -input=false azurerm_key_vault_access_policy.current /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$CURRENT_OBJECT_ID || true
+        fi
+        
+        AKS_IDENTITY=$(az aks show --resource-group $RG_NAME --name visitor-counter-aks --query identityProfile.kubeletidentity.objectId -o tsv 2>/dev/null || echo "")
+        if [ -n "$AKS_IDENTITY" ]; then
+          terraform import -input=false azurerm_key_vault_access_policy.aks_identity /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$AKS_IDENTITY || true
+        fi
+        
+        # Import Key Vault secrets
+        echo "Importing Key Vault secrets..."
+        terraform import -input=false azurerm_key_vault_secret.acr_login_server https://$KV_NAME.vault.azure.net/secrets/acr-login-server || true
+        terraform import -input=false azurerm_key_vault_secret.db_host https://$KV_NAME.vault.azure.net/secrets/db-host || true
+        terraform import -input=false azurerm_key_vault_secret.db_user https://$KV_NAME.vault.azure.net/secrets/db-user || true
+        terraform import -input=false azurerm_key_vault_secret.db_password https://$KV_NAME.vault.azure.net/secrets/ConnectionStrings--DefaultConnection || true
+        terraform import -input=false azurerm_key_vault_secret.postgres_password https://$KV_NAME.vault.azure.net/secrets/postgres-password || true
         
         echo "Resource import completed"
     - name: Terraform apply
