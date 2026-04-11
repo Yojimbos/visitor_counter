@@ -68,12 +68,12 @@ jobs:
           terraform import -input=false azurerm_key_vault_access_policy.aks_identity /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$AKS_IDENTITY || true
         fi
         
-        # Import Key Vault secrets
-        terraform import -input=false azurerm_key_vault_secret.acr_login_server https://$KV_NAME.vault.azure.net/secrets/acr-login-server || true
-        terraform import -input=false azurerm_key_vault_secret.db_host https://$KV_NAME.vault.azure.net/secrets/db-host || true
-        terraform import -input=false azurerm_key_vault_secret.db_user https://$KV_NAME.vault.azure.net/secrets/db-user || true
-        terraform import -input=false azurerm_key_vault_secret.db_password https://$KV_NAME.vault.azure.net/secrets/ConnectionStrings--DefaultConnection || true
-        terraform import -input=false azurerm_key_vault_secret.postgres_password https://$KV_NAME.vault.azure.net/secrets/postgres-password || true
+        # Import Key Vault secrets using correct format: <keyvault-name>/<secret-name>
+        terraform import -input=false azurerm_key_vault_secret.acr_login_server $KV_NAME/acr-login-server || true
+        terraform import -input=false azurerm_key_vault_secret.db_host $KV_NAME/db-host || true
+        terraform import -input=false azurerm_key_vault_secret.db_user $KV_NAME/db-user || true
+        terraform import -input=false azurerm_key_vault_secret.db_password $KV_NAME/ConnectionStrings--DefaultConnection || true
+        terraform import -input=false azurerm_key_vault_secret.postgres_password $KV_NAME/postgres-password || true
       working-directory: infra/terraform
     - name: Terraform Plan
       run: terraform plan
