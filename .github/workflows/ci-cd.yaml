@@ -28,11 +28,15 @@ jobs:
     - name: Terraform init
       run: |
         cd infra/terraform
+        echo "Initializing Terraform with local backend..."
         terraform init -backend=false -input=false
+        echo "Terraform initialization completed"
     - name: Terraform apply
       run: |
         cd infra/terraform
+        echo "Running terraform plan..."
         terraform plan -out=tfplan -input=false
+        echo "Running terraform apply..."
         terraform apply -auto-approve tfplan
     - name: Cleanup
       if: always()
