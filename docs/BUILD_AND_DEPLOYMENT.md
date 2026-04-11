@@ -70,6 +70,31 @@ Terraform creates:
 - ✅ PostgreSQL Flexible Server
 - ✅ RBAC: AKS can pull images from ACR (AcrPull role)
 
+### CI/CD Terraform Configuration
+
+For CI/CD pipelines, use the local backend to avoid authentication issues:
+
+1. **Copy the local backend file:**
+   ```bash
+   cp infra/terraform/backend.local.tf infra/terraform/backend.tf
+   ```
+
+2. **Run Terraform in CI/CD:**
+   ```bash
+   cd infra/terraform
+   terraform init
+   terraform plan -out=tfplan
+   terraform apply tfplan
+   ```
+
+3. **For production deployments**, switch back to Azure backend:
+   ```bash
+   git checkout infra/terraform/backend.tf  # Restore original
+   terraform init -reconfigure  # Reinitialize with Azure backend
+   ```
+
+**Note**: The `backend.local.tf` file is configured for CI/CD use with managed identity.
+
 ### 3. Kubernetes Configuration
 
 Secret values are stored in `k8s/secret.yaml`:

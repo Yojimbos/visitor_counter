@@ -21,8 +21,11 @@ jobs:
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Setup Terraform Backend for CI/CD
+      run: echo "Using local backend for CI/CD"
+      working-directory: infra/terraform
     - name: Terraform Init
-      run: terraform init
+      run: terraform init -backend=false
       working-directory: infra/terraform
     - name: Terraform Plan
       run: terraform plan
@@ -30,4 +33,9 @@ jobs:
     - name: Terraform Apply
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: terraform apply -auto-approve
+      working-directory: infra/terraform
+    - name: Cleanup Backend Configuration
+      if: always()
+      run: |
+        rm -f terraform.tfstate terraform.tfstate.backup
       working-directory: infra/terraform

@@ -30,25 +30,23 @@ jobs:
       uses: hashicorp/setup-terraform@v2
       with:
         terraform_version: 1.7.0
+    - name: Setup Terraform Backend for CI/CD
+      run: echo "Using local backend for CI/CD"
+      working-directory: infra/terraform
     - name: Terraform init
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       run: |
         cd infra/terraform
-        terraform init -input=false
+        terraform init -backend=false -input=false
     - name: Terraform apply
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       run: |
         cd infra/terraform
         terraform plan -out=tfplan -input=false
         terraform apply -auto-approve tfplan
+    - name: Cleanup Backend Configuration
+      if: always()
+      run: |
+        cd infra/terraform
+        rm -f terraform.tfstate terraform.tfstate.backup
 
   build-and-push:
     needs: provision
