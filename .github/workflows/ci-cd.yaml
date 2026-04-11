@@ -28,6 +28,8 @@ jobs:
     - name: Terraform init
       run: |
         cd infra/terraform
+        echo "Disabling Azure backend for CI/CD..."
+        mv backend.tf backend.tf.bak || true
         echo "Initializing Terraform with local backend..."
         terraform init -backend=false -input=false
         echo "Terraform initialization completed"
@@ -38,6 +40,11 @@ jobs:
         terraform plan -out=tfplan -input=false
         echo "Running terraform apply..."
         terraform apply -auto-approve tfplan
+    - name: Restore backend
+      if: always()
+      run: |
+        cd infra/terraform
+        mv backend.tf.bak backend.tf || true
     - name: Cleanup
       if: always()
       run: |
