@@ -33,6 +33,51 @@ jobs:
         echo "Initializing Terraform with local backend..."
         terraform init -backend=false -input=false
         echo "Terraform initialization completed"
+    - name: Import existing resources
+      run: |
+        cd infra/terraform
+        echo "Importing existing Azure resources into local state..."
+        
+        SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+        RG_NAME="visitor-counter-rg"
+        
+        # Import resource group
+        if az group exists --name $RG_NAME | grep -q true; then
+          echo "Importing resource group..."
+          terraform import -input=false azurerm_resource_group.rg /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME || true
+        fi
+        
+        # Import virtual network if it exists
+        if az network vnet show --resource-group $RG_NAME --name visitor-counter-vnet 2>/dev/null; then
+          echo "Importing virtual network..."
+          terraform import -input=false azurerm_virtual_network.visitor-counter_vnet $RG_NAME/visitor-counter-vnet || true
+        fi
+        
+        # Import AKS cluster if it exists
+        if az aks show --resource-group $RG_NAME --name visitor-counter-aks 2>/dev/null; then
+          echo "Importing AKS cluster..."
+          terraform import -input=false azurerm_kubernetes_cluster.aks $RG_NAME/visitor-counter-aks || true
+        fi
+        
+        # Import PostgreSQL server if it exists
+        if az postgres flexible-server show --resource-group $RG_NAME --name visitor-counter-postgres-ne 2>/dev/null; then
+          echo "Importing PostgreSQL server..."
+          terraform import -input=false azurerm_postgresql_flexible_server.postgres /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.DBforPostgreSQL/flexibleServers/visitor-counter-postgres-ne || true
+        fi
+        
+        # Import ACR if it exists
+        if az acr show --resource-group $RG_NAME --name visitorcounteracr 2>/dev/null; then
+          echo "Importing ACR..."
+          terraform import -input=false azurerm_container_registry.acr $RG_NAME/visitorcounteracr || true
+        fi
+        
+        # Import Key Vault if it exists
+        if az keyvault show --resource-group $RG_NAME --name visitor-kv-20260410 2>/dev/null; then
+          echo "Importing Key Vault..."
+          terraform import -input=false azurerm_key_vault.kv $RG_NAME/visitor-kv-20260410 || true
+        fi
+        
+        echo "Resource import completed"
     - name: Terraform apply
       run: |
         cd infra/terraform
