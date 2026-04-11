@@ -74,6 +74,13 @@ resource "azurerm_postgresql_flexible_server" "postgres" {
   administrator_password = random_password.postgres_admin.result
   storage_mb             = 32768
   sku_name               = "B_Standard_B1ms"
+  zone                   = "1"
+  
+  lifecycle {
+    ignore_changes = [
+      zone  # Zone cannot be changed after creation
+    ]
+  }
 }
 
 resource "azurerm_postgresql_flexible_server_database" "db" {

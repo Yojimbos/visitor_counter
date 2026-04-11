@@ -50,13 +50,19 @@ jobs:
         # Import virtual network if it exists
         if az network vnet show --resource-group $RG_NAME --name visitor-counter-vnet 2>/dev/null; then
           echo "Importing virtual network..."
-          terraform import -input=false azurerm_virtual_network.visitor-counter_vnet $RG_NAME/visitor-counter-vnet || true
+          terraform import -input=false azurerm_virtual_network.visitor-counter_vnet /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/visitor-counter-vnet || true
+        fi
+        
+        # Import subnet if it exists
+        if az network vnet subnet show --resource-group $RG_NAME --vnet-name visitor-counter-vnet --name visitor-counter-aks-subnet 2>/dev/null; then
+          echo "Importing subnet..."
+          terraform import -input=false azurerm_subnet.aks_subnet /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/visitor-counter-vnet/subnets/visitor-counter-aks-subnet || true
         fi
         
         # Import AKS cluster if it exists
         if az aks show --resource-group $RG_NAME --name visitor-counter-aks 2>/dev/null; then
           echo "Importing AKS cluster..."
-          terraform import -input=false azurerm_kubernetes_cluster.aks $RG_NAME/visitor-counter-aks || true
+          terraform import -input=false azurerm_kubernetes_cluster.aks /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/visitor-counter-aks || true
         fi
         
         # Import PostgreSQL server if it exists
@@ -65,16 +71,22 @@ jobs:
           terraform import -input=false azurerm_postgresql_flexible_server.postgres /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.DBforPostgreSQL/flexibleServers/visitor-counter-postgres-ne || true
         fi
         
+        # Import PostgreSQL database if it exists
+        if az postgres flexible-server db show --resource-group $RG_NAME --server-name visitor-counter-postgres-ne --database-name visitorcounter 2>/dev/null; then
+          echo "Importing PostgreSQL database..."
+          terraform import -input=false azurerm_postgresql_flexible_server_database.db /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.DBforPostgreSQL/flexibleServers/visitor-counter-postgres-ne/databases/visitorcounter || true
+        fi
+        
         # Import ACR if it exists
         if az acr show --resource-group $RG_NAME --name visitorcounteracr 2>/dev/null; then
           echo "Importing ACR..."
-          terraform import -input=false azurerm_container_registry.acr $RG_NAME/visitorcounteracr || true
+          terraform import -input=false azurerm_container_registry.acr /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerRegistry/registries/visitorcounteracr || true
         fi
         
         # Import Key Vault if it exists
         if az keyvault show --resource-group $RG_NAME --name visitor-kv-20260410 2>/dev/null; then
           echo "Importing Key Vault..."
-          terraform import -input=false azurerm_key_vault.kv $RG_NAME/visitor-kv-20260410 || true
+          terraform import -input=false azurerm_key_vault.kv /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/visitor-kv-20260410 || true
         fi
         
         echo "Resource import completed"
