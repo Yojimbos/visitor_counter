@@ -29,54 +29,45 @@ jobs:
       working-directory: infra/terraform
     - name: Import existing resources
       run: |
-        SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-        RG_NAME="visitor-counter-rg"
-        KV_NAME="visitor-kv-20260410"
-        
-        # Import resource group
-        az group exists --name $RG_NAME && terraform import -input=false azurerm_resource_group.rg /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME || true
-        
-        # Import virtual network
-        az network vnet show --resource-group $RG_NAME --name visitor-counter-vnet 2>/dev/null && terraform import -input=false azurerm_virtual_network.visitor-counter_vnet /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/visitor-counter-vnet || true
-        
-        # Import subnet
-        az network vnet subnet show --resource-group $RG_NAME --vnet-name visitor-counter-vnet --name visitor-counter-aks-subnet 2>/dev/null && terraform import -input=false azurerm_subnet.aks_subnet /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/visitor-counter-vnet/subnets/visitor-counter-aks-subnet || true
-        
-        # Import AKS cluster
-        az aks show --resource-group $RG_NAME --name visitor-counter-aks 2>/dev/null && terraform import -input=false azurerm_kubernetes_cluster.aks /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/visitor-counter-aks || true
-        
-        # Import PostgreSQL server
-        az postgres flexible-server show --resource-group $RG_NAME --name visitor-counter-postgres-ne 2>/dev/null && terraform import -input=false azurerm_postgresql_flexible_server.postgres /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.DBforPostgreSQL/flexibleServers/visitor-counter-postgres-ne || true
-        
-        # Import PostgreSQL database
-        az postgres flexible-server db show --resource-group $RG_NAME --server-name visitor-counter-postgres-ne --database-name visitorcounter 2>/dev/null && terraform import -input=false azurerm_postgresql_flexible_server_database.db /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.DBforPostgreSQL/flexibleServers/visitor-counter-postgres-ne/databases/visitorcounter || true
-        
-        # Import ACR
-        az acr show --resource-group $RG_NAME --name visitorcounteracr 2>/dev/null && terraform import -input=false azurerm_container_registry.acr /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerRegistry/registries/visitorcounteracr || true
-        
-        # Import Key Vault
-        az keyvault show --resource-group $RG_NAME --name $KV_NAME 2>/dev/null && terraform import -input=false azurerm_key_vault.kv /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME || true
-        
-        # Import Key Vault access policies
-        CURRENT_OBJECT_ID=$(az ad signed-in-user show --query objectId -o tsv 2>/dev/null || echo "")
-        if [ -n "$CURRENT_OBJECT_ID" ]; then
-          terraform import -input=false azurerm_key_vault_access_policy.current /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$CURRENT_OBJECT_ID || true
-        fi
-        
-        AKS_IDENTITY=$(az aks show --resource-group $RG_NAME --name visitor-counter-aks --query identityProfile.kubeletidentity.objectId -o tsv 2>/dev/null || echo "")
-        if [ -n "$AKS_IDENTITY" ]; then
-          terraform import -input=false azurerm_key_vault_access_policy.aks_identity /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$AKS_IDENTITY || true
-        fi
-        
-        # Import Key Vault secrets using full URI without version GUID
-        for secret in acr-login-server db-host db-user ConnectionStrings--DefaultConnection postgres-password; do
-          SECRET_URI=$(az keyvault secret show --vault-name $KV_NAME --name $secret --query id -o tsv 2>/dev/null || echo "")
-          if [ -n "$SECRET_URI" ]; then
-            # Обрізаємо GUID версії, якщо він є
-            BASE_URI=$(echo "$SECRET_URI" | sed -E 's|/[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$||')
-            terraform import -input=false azurerm_key_vault_secret.${secret//-/_} "$BASE_URI" || true
+          SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+          RG_NAME="visitor-counter-rg"
+          KV_NAME="visitor-kv-20260410"
+
+          import_if_missing () {
+            RESOURCE=$1
+            ID=$2
+            if ! terraform state list | grep -q "$RESOURCE"; then
+              terraform import -input=false $RESOURCE "$ID" || true
+            else
+              echo "Skip import: $RESOURCE already in state"
+            fi
+          }
+
+          # Resource group
+          if az group exists --name $RG_NAME; then
+            import_if_missing "azurerm_resource_group.rg" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME"
           fi
-        done
+
+          # Virtual network
+          if az network vnet show --resource-group $RG_NAME --name visitor-counter-vnet >/dev/null 2>&1; then
+            import_if_missing "azurerm_virtual_network.visitor-counter_vnet" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/visitor-counter-vnet"
+          fi
+
+          # Subnet
+          if az network vnet subnet show --resource-group $RG_NAME --vnet-name visitor-counter-vnet --name visitor-counter-aks-subnet >/dev/null 2>&1; then
+            import_if_missing "azurerm_subnet.aks_subnet" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/visitor-counter-vnet/subnets/visitor-counter-aks-subnet"
+          fi
+        
+          # AKS cluster
+          if az aks show --resource-group $RG_NAME --name visitor-counter-aks >/dev/null 2>&1; then
+            import_if_missing "azurerm_kubernetes_cluster.aks" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/visitor-counter-aks"
+          fi
+
+          # Key Vault secrets
+          DB_HOST_URI=$(az keyvault secret show --vault-name $KV_NAME --name db-host --query id -o tsv 2>/dev/null || echo "")
+          if [ -n "$DB_HOST_URI" ]; then
+            import_if_missing "azurerm_key_vault_secret.db_host" "$DB_HOST_URI"
+          fi
       working-directory: infra/terraform
     - name: Terraform Plan
       run: terraform plan
