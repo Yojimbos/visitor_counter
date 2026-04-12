@@ -37,107 +37,7 @@ jobs:
     - name: Import existing resources
       run: |
         cd infra/terraform
-        echo "Importing existing Azure resources into local state..."
-        
-        SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-        RG_NAME="visitor-counter-rg"
-        KV_NAME="visitor-kv-20260410"
-        
-        # Import resource group
-        if az group exists --name $RG_NAME | grep -q true; then
-          echo "Importing resource group..."
-          terraform import -input=false azurerm_resource_group.rg /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME || true
-        fi
-        
-        # Import virtual network
-        if az network vnet show --resource-group $RG_NAME --name visitor-counter-vnet 2>/dev/null; then
-          echo "Importing virtual network..."
-          terraform import -input=false azurerm_virtual_network.visitor-counter_vnet /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/visitor-counter-vnet || true
-        fi
-        
-        # Import subnet
-        if az network vnet subnet show --resource-group $RG_NAME --vnet-name visitor-counter-vnet --name visitor-counter-aks-subnet 2>/dev/null; then
-          echo "Importing subnet..."
-          terraform import -input=false azurerm_subnet.aks_subnet /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/visitor-counter-vnet/subnets/visitor-counter-aks-subnet || true
-        fi
-        
-        # Import AKS cluster
-        if az aks show --resource-group $RG_NAME --name visitor-counter-aks 2>/dev/null; then
-          echo "Importing AKS cluster..."
-          terraform import -input=false azurerm_kubernetes_cluster.aks /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/visitor-counter-aks || true
-        fi
-        
-        # Import PostgreSQL server
-        if az postgres flexible-server show --resource-group $RG_NAME --name visitor-counter-postgres-ne 2>/dev/null; then
-          echo "Importing PostgreSQL server..."
-          terraform import -input=false azurerm_postgresql_flexible_server.postgres /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.DBforPostgreSQL/flexibleServers/visitor-counter-postgres-ne || true
-        fi
-        
-        # Import PostgreSQL database
-        if az postgres flexible-server db show --resource-group $RG_NAME --server-name visitor-counter-postgres-ne --database-name visitorcounter 2>/dev/null; then
-          echo "Importing PostgreSQL database..."
-          terraform import -input=false azurerm_postgresql_flexible_server_database.db /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.DBforPostgreSQL/flexibleServers/visitor-counter-postgres-ne/databases/visitorcounter || true
-        fi
-        
-        # Import ACR
-        if az acr show --resource-group $RG_NAME --name visitorcounteracr 2>/dev/null; then
-          echo "Importing ACR..."
-          terraform import -input=false azurerm_container_registry.acr /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerRegistry/registries/visitorcounteracr || true
-        fi
-        
-        # Import Key Vault
-        if az keyvault show --resource-group $RG_NAME --name $KV_NAME 2>/dev/null; then
-          echo "Importing Key Vault..."
-          terraform import -input=false azurerm_key_vault.kv /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME || true
-        fi
-        
-        # Import AKS identity access policy
-        AKS_IDENTITY=$(az aks show --resource-group $RG_NAME --name visitor-counter-aks --query identityProfile.kubeletidentity.objectId -o tsv 2>/dev/null || echo "")
-        if [ -n "$AKS_IDENTITY" ]; then
-          terraform import -input=false azurerm_key_vault_access_policy.aks_identity /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$AKS_IDENTITY || true
-        fi
-        
-        # Import Key Vault secrets
-        echo "Importing Key Vault secrets..."
-        for secret in acr-login-server db-host db-user postgres-password; do
-          SECRET_URI=$(az keyvault secret show --vault-name $KV_NAME --name $secret --query id -o tsv 2>/dev/null || echo "")
-          if [ -n "$SECRET_URI" ]; then
-            BASE_URI=$(echo "$SECRET_URI" | sed -E 's|/[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$||')
-            if ! terraform state list | grep -q "azurerm_key_vault_secret.${secret//-/_}"; then
-              terraform import -input=false azurerm_key_vault_secret.${secret//-/_} "$BASE_URI" || true
-            else
-              echo "Skip import: azurerm_key_vault_secret.${secret//-/_} already in state"
-            fi
-          fi
-        done
-
-        # Special case: db_password (ConnectionStrings--DefaultConnection)
-        DB_PASSWORD_URI=$(az keyvault secret show --vault-name $KV_NAME --name ConnectionStrings--DefaultConnection --query id -o tsv 2>/dev/null || echo "")
-        if [ -n "$DB_PASSWORD_URI" ]; then
-          BASE_URI=$(echo "$DB_PASSWORD_URI" | sed -E 's|/[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$||')
-          if ! terraform state list | grep -q "azurerm_key_vault_secret.db_password"; then
-            terraform import -input=false azurerm_key_vault_secret.db_password "$BASE_URI" || true
-          else
-            echo "Skip import: azurerm_key_vault_secret.db_password already in state"
-          fi
-        fi
-
-        # Import Key Vault access policy for CI service principal
-        SP_APP_ID=$(echo "$AZURE_CREDENTIALS" | jq -r .clientId)
-        CURRENT_OBJECT_ID=$(az ad sp show --id $SP_APP_ID --query id -o tsv 2>/dev/null || echo "")
-        if [ -n "$CURRENT_OBJECT_ID" ]; then
-          POLICY_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$CURRENT_OBJECT_ID"
-          if ! terraform state list | grep -q "azurerm_key_vault_access_policy.current"; then
-            echo "Importing Key Vault access policy for CI service principal..."
-            terraform import -input=false azurerm_key_vault_access_policy.current "$POLICY_ID" || true
-          else
-            echo "Skip import: azurerm_key_vault_access_policy.current already in state"
-          fi
-        fi
-        
-        echo "Resource import completed"
-
-    - name: Terraform apply
+    - name: Terraform apply (Azure infra)
       run: |
         cd infra/terraform
         echo "Running terraform plan..."
@@ -155,7 +55,7 @@ jobs:
         cd infra/terraform
         rm -f terraform.tfstate terraform.tfstate.backup tfplan
 
-  build-and-push:
+  helm-deploy:
     needs: provision
     runs-on: ubuntu-latest
     steps:
@@ -166,26 +66,27 @@ jobs:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
     - name: Set Azure subscription
       run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-    - name: Build and push Docker image
-      run: |
-        docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} ./src/VisitorCounter
-        az acr login --name ${{ env.ACR_NAME }}
-        docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Azure Login
-      uses: azure/login@v1
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
       with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
-    - name: Set Azure subscription
-      run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-    - name: Set AKS context
-      run: az aks get-credentials --resource-group visitor-counter-rg --name visitor-counter-aks
-    - name: Deploy to AKS
+        terraform_version: 1.7.0
+    - name: Terraform init (Helm)
       run: |
-        kubectl set image deployment/visitor-counter visitor-counter=${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
-        kubectl apply -f k8s/
+        cd infra/terraform
+        mv backend.tf backend.tf.bak || true
+        terraform init -backend=false -input=false
+    - name: Terraform apply (Helm resources)
+      run: |
+        cd infra/terraform
+        terraform plan -target=helm_release.ingress_nginx -out=tfplan -input=false
+        terraform apply -auto-approve tfplan
+    - name: Restore backend
+      if: always()
+      run: |
+        cd infra/terraform
+        mv backend.tf.bak backend.tf || true
+    - name: Cleanup
+      if: always()
+      run: |
+        cd infra/terraform
+        rm -f terraform.tfstate terraform.tfstate.backup tfplan
