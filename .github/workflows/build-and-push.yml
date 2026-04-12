@@ -52,7 +52,6 @@ jobs:
           fi
           echo "REGISTRY_NAME=${REGISTRY_NAME}" >> $GITHUB_ENV
           echo "Using ACR: $REGISTRY_NAME"
-          az acr check-health -n $REGISTRY_NAME --yes
 
       - name: Build and push to ACR
         run: |
