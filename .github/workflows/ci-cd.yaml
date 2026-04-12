@@ -90,13 +90,6 @@ jobs:
           terraform import -input=false azurerm_key_vault.kv /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME || true
         fi
         
-        # Import Key Vault access policies
-        echo "Importing Key Vault access policies..."
-        CURRENT_OBJECT_ID=$(az ad signed-in-user show --query objectId -o tsv 2>/dev/null || echo "")
-        if [ -n "$CURRENT_OBJECT_ID" ]; then
-          terraform import -input=false azurerm_key_vault_access_policy.current /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$CURRENT_OBJECT_ID || true
-        fi
-        
         AKS_IDENTITY=$(az aks show --resource-group $RG_NAME --name visitor-counter-aks --query identityProfile.kubeletidentity.objectId -o tsv 2>/dev/null || echo "")
         if [ -n "$AKS_IDENTITY" ]; then
           terraform import -input=false azurerm_key_vault_access_policy.aks_identity /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$AKS_IDENTITY || true
