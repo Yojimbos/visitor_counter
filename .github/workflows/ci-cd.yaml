@@ -107,19 +107,30 @@ jobs:
               echo "Skip import: azurerm_key_vault_secret.${secret//-/_} already in state"
             fi
           fi
-        done
 
-        # Special case: db_password (ConnectionStrings--DefaultConnection)
-        DB_PASSWORD_URI=$(az keyvault secret show --vault-name $KV_NAME --name ConnectionStrings--DefaultConnection --query id -o tsv 2>/dev/null || echo "")
-        if [ -n "$DB_PASSWORD_URI" ]; then
-          BASE_URI=$(echo "$DB_PASSWORD_URI" | sed -E 's|/[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$||')
-          if ! terraform state list | grep -q "azurerm_key_vault_secret.db_password"; then
-            terraform import -input=false azurerm_key_vault_secret.db_password "$BASE_URI" || true
-          else
-            echo "Skip import: azurerm_key_vault_secret.db_password already in state"
+          # Special case: db_password (ConnectionStrings--DefaultConnection)
+          DB_PASSWORD_URI=$(az keyvault secret show --vault-name $KV_NAME --name ConnectionStrings--DefaultConnection --query id -o tsv 2>/dev/null || echo "")
+          if [ -n "$DB_PASSWORD_URI" ]; then
+            BASE_URI=$(echo "$DB_PASSWORD_URI" | sed -E 's|/[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$||')
+            if ! terraform state list | grep -q "azurerm_key_vault_secret.db_password"; then
+              terraform import -input=false azurerm_key_vault_secret.db_password "$BASE_URI" || true
+            else
+              echo "Skip import: azurerm_key_vault_secret.db_password already in state"
+            fi
           fi
-        fi
-        
+
+          # Import Key Vault access policy for current user/SP
+          CURRENT_OBJECT_ID=$(az ad signed-in-user show --query objectId -o tsv 2>/dev/null || echo "")
+          if [ -n "$CURRENT_OBJECT_ID" ]; then
+            POLICY_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$CURRENT_OBJECT_ID"
+            if ! terraform state list | grep -q "azurerm_key_vault_access_policy.current"; then
+              echo "Importing Key Vault access policy for current user..."
+              terraform import -input=false azurerm_key_vault_access_policy.current "$POLICY_ID" || true
+            else
+              echo "Skip import: azurerm_key_vault_access_policy.current already in state"
+            fi
+          fi
+        done
         echo "Resource import completed"
     - name: Terraform apply
       run: |
