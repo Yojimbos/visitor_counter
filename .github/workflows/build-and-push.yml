@@ -53,15 +53,10 @@ jobs:
           echo "REGISTRY_NAME=${REGISTRY_NAME}" >> $GITHUB_ENV
           echo "Using ACR: $REGISTRY_NAME"
 
-      - name: Build and push to ACR
+      - name: Build and push image
         run: |
-          az acr build \
-            --registry $REGISTRY_NAME \
-            --image $IMAGE_NAME:${{ steps.image_tag.outputs.tag }} \
-            --file src/VisitorCounter/Dockerfile \
-            ./src/VisitorCounter
-          
-          echo "✓ Image pushed: $IMAGE_NAME:${{ steps.image_tag.outputs.tag }}"
+          docker build -t $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:${{ steps.image_tag.outputs.tag }} -f src/VisitorCounter/Dockerfile ./src/VisitorCounter
+          docker push $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:${{ steps.image_tag.outputs.tag }}
 
       - name: Also tag as latest
         run: |
