@@ -91,10 +91,10 @@ This shows:
 After successful deployment:
 
 ```
-┌─────────────────────────────────────┐
-│   Azure Resource Group              │
-│   visitor-counter-rg                │
-│                                     │
+┌────────────────────────────────────┐
+│   Azure Resource Group             │
+│   visitor-counter-rg               │
+│                                    │
 │  ┌───────────────────────────────┐ │
 │  │ VirtualNetwork (10.0.0.0/16)  │ │
 │  │                               │ │
@@ -109,20 +109,20 @@ After successful deployment:
 │  │ │ Server (Private)        │   │ │
 │  │ └─────────────────────────┘   │ │
 │  └───────────────────────────────┘ │
-│                                     │
+│                                    │
 │  ┌───────────────────────────────┐ │
 │  │ Container Registry (ACR)      │ │
 │  │ Standard_B1ms                 │ │
 │  └───────────────────────────────┘ │
-│                                     │
+│                                    │
 │  ┌───────────────────────────────┐ │
 │  │ Key Vault                     │ │
 │  │ - DB Connection String        │ │
 │  │ - DB Password                 │ │
 │  │ - ACR Credentials             │ │
 │  └───────────────────────────────┘ │
-│                                     │
-└─────────────────────────────────────┘
+│                                    │
+└────────────────────────────────────┘
 ```
 
 ## Optional: Add VM for Secure Communication
