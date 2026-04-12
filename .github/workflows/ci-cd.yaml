@@ -119,18 +119,6 @@ jobs:
             echo "Skip import: azurerm_key_vault_secret.db_password already in state"
           fi
         fi
-
-        # Import Key Vault access policy for current user/SP
-        CURRENT_OBJECT_ID=$(az ad signed-in-user show --query objectId -o tsv 2>/dev/null || echo "")
-        if [ -n "$CURRENT_OBJECT_ID" ]; then
-          POLICY_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$CURRENT_OBJECT_ID"
-          if ! terraform state list | grep -q "azurerm_key_vault_access_policy.current"; then
-            echo "Importing Key Vault access policy for current user..."
-            terraform import -input=false azurerm_key_vault_access_policy.current "$POLICY_ID" || true
-          else
-            echo "Skip import: azurerm_key_vault_access_policy.current already in state"
-          fi
-        fi
         
         echo "Resource import completed"
     - name: Terraform apply
