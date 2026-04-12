@@ -102,13 +102,22 @@ jobs:
           terraform import -input=false azurerm_key_vault_access_policy.aks_identity /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$AKS_IDENTITY || true
         fi
         
-        # Import Key Vault secrets using correct format: <keyvault-name>/<secret-name>
+        # Import Key Vault secrets using full URI
         echo "Importing Key Vault secrets..."
-        terraform import -input=false azurerm_key_vault_secret.acr_login_server $KV_NAME/acr-login-server || true
-        terraform import -input=false azurerm_key_vault_secret.db_host $KV_NAME/db-host || true
-        terraform import -input=false azurerm_key_vault_secret.db_user $KV_NAME/db-user || true
-        terraform import -input=false azurerm_key_vault_secret.db_password $KV_NAME/ConnectionStrings--DefaultConnection || true
-        terraform import -input=false azurerm_key_vault_secret.postgres_password $KV_NAME/postgres-password || true
+        for secret in acr-login-server db-host db-user ConnectionStrings--DefaultConnection postgres-password; do
+          SECRET_URI=$(az keyvault secret show --vault-name $KV_NAME --name $secret --query id -o tsv 2>/dev/null || echo "")
+          if [ -n "$SECRET_URI" ]; then
+            # Обрізаємо GUID версії, щоб імпортувати базовий секрет
+            BASE_URI=$(echo "$SECRET_URI" | sed -E 's|/[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$||')
+            if ! terraform state list | grep -q "azurerm_key_vault_secret.${secret//-/_}"; then
+              terraform import -input=false azurerm_key_vault_secret.${secret//-/_} "$BASE_URI" || true
+            else
+              echo "Skip import: azurerm_key_vault_secret.${secret//-/_} already in state"
+            fi
+          else
+            echo "Secret $secret not found or no access"
+          fi
+        done
         
         echo "Resource import completed"
     - name: Terraform apply
