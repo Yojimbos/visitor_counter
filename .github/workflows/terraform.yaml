@@ -68,12 +68,31 @@ jobs:
           terraform import -input=false azurerm_key_vault_access_policy.aks_identity /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$AKS_IDENTITY || true
         fi
         
-        # Import Key Vault secrets using correct format: <keyvault-name>/<secret-name>
-        terraform import -input=false azurerm_key_vault_secret.acr_login_server $KV_NAME/acr-login-server || true
-        terraform import -input=false azurerm_key_vault_secret.db_host $KV_NAME/db-host || true
-        terraform import -input=false azurerm_key_vault_secret.db_user $KV_NAME/db-user || true
-        terraform import -input=false azurerm_key_vault_secret.db_password $KV_NAME/ConnectionStrings--DefaultConnection || true
-        terraform import -input=false azurerm_key_vault_secret.postgres_password $KV_NAME/postgres-password || true
+        # Import Key Vault secrets using full URI with version ID
+        ACR_LOGIN_URI=$(az keyvault secret show --vault-name $KV_NAME --name acr-login-server --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$ACR_LOGIN_URI" ]; then
+          terraform import -input=false azurerm_key_vault_secret.acr_login_server "$ACR_LOGIN_URI" || true
+        fi
+        
+        DB_HOST_URI=$(az keyvault secret show --vault-name $KV_NAME --name db-host --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$DB_HOST_URI" ]; then
+          terraform import -input=false azurerm_key_vault_secret.db_host "$DB_HOST_URI" || true
+        fi
+        
+        DB_USER_URI=$(az keyvault secret show --vault-name $KV_NAME --name db-user --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$DB_USER_URI" ]; then
+          terraform import -input=false azurerm_key_vault_secret.db_user "$DB_USER_URI" || true
+        fi
+        
+        DB_PASSWORD_URI=$(az keyvault secret show --vault-name $KV_NAME --name ConnectionStrings--DefaultConnection --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$DB_PASSWORD_URI" ]; then
+          terraform import -input=false azurerm_key_vault_secret.db_password "$DB_PASSWORD_URI" || true
+        fi
+        
+        POSTGRES_PASSWORD_URI=$(az keyvault secret show --vault-name $KV_NAME --name postgres-password --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$POSTGRES_PASSWORD_URI" ]; then
+          terraform import -input=false azurerm_key_vault_secret.postgres_password "$POSTGRES_PASSWORD_URI" || true
+        fi
       working-directory: infra/terraform
     - name: Terraform Plan
       run: terraform plan
