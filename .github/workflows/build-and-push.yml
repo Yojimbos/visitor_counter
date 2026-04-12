@@ -53,6 +53,11 @@ jobs:
           echo "REGISTRY_NAME=${REGISTRY_NAME}" >> $GITHUB_ENV
           echo "Using ACR: $REGISTRY_NAME"
 
+      - name: Docker login to ACR
+        run: |
+          echo ${{ secrets.AZURE_CLIENT_SECRET }} | docker login $REGISTRY_NAME.azurecr.io \
+            -u ${{ secrets.AZURE_CLIENT_ID }} --password-stdin
+
       - name: Build and push image
         run: |
           docker build -t $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:${{ steps.image_tag.outputs.tag }} -f src/VisitorCounter/Dockerfile ./src/VisitorCounter
