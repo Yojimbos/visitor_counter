@@ -9,6 +9,7 @@ on:
 env:
   ACR_NAME: visitorcounteracr
   IMAGE_NAME: visitor-counter
+  AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
 
 jobs:
   provision:
@@ -122,7 +123,7 @@ jobs:
         fi
 
         # Import Key Vault access policy for CI service principal
-        SP_APP_ID=$(echo ${{ secrets.AZURE_CREDENTIALS }} | jq -r .clientId)
+        SP_APP_ID=$(echo "$AZURE_CREDENTIALS" | jq -r .clientId)
         CURRENT_OBJECT_ID=$(az ad sp show --id $SP_APP_ID --query id -o tsv 2>/dev/null || echo "")
         if [ -n "$CURRENT_OBJECT_ID" ]; then
           POLICY_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$CURRENT_OBJECT_ID"
