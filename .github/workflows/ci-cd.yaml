@@ -156,38 +156,42 @@ jobs:
         rm -f terraform.tfstate terraform.tfstate.backup tfplan
 
   helm-deploy:
-      needs: provision
-      runs-on: ubuntu-latest
-      steps:
-      - uses: actions/checkout@v3
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-      - name: Set Azure subscription
-        run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.7.0
-      - name: Terraform init (Helm)
-        run: |
-          cd infra/terraform
-          terraform init -backend=false -input=false
-      - name: Terraform apply (Ingress Helm release)
-        run: |
-          cd infra/terraform
-          if helm list -n ingress-nginx | grep -q ingress-nginx; then
-            echo "Importing ingress-nginx Helm release..."
-            terraform import helm_release.ingress_nginx ingress-nginx || true
-          else
-            echo "Ingress-nginx not found, skipping import"
-          fi
-          terraform plan -target=helm_release.ingress_nginx -out=tfplan -input=false
-          terraform apply -auto-approve tfplan
+    needs: provision
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Set Azure subscription
+      run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+    - name: Terraform init (Ingress)
+      run: |
+        cd infra/ingress
+        echo "Initializing Terraform for Ingress with local backend..."
+        terraform init -backend=false -input=false
+        echo "Terraform initialization for Ingress completed"
+    - name: Import ingress-nginx release if exists
+      run: |
+        cd infra/ingress
+        echo "Checking for existing ingress-nginx release..."
+        if helm list -n ingress-nginx | grep -q ingress-nginx; then
+          echo "Found existing ingress-nginx release. Importing..."
+          terraform import helm_release.ingress_nginx ingress-nginx || true
+        fi
+    - name: Terraform apply (Ingress)
+      run: |
+        cd infra/ingress
+        echo "Running terraform plan for Ingress..."
+        terraform plan -out=tfplan -input=false
+        echo "Running terraform apply for Ingress..."
+        terraform apply -auto-approve tfplan
 
   build-and-push:
-    needs: provision
+    needs: helm-deploy
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
