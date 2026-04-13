@@ -134,16 +134,36 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Set Azure subscription
+        run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Set AKS context
+        run: az aks get-credentials --resource-group visitor-counter-rg --name visitor-counter-aks --overwrite-existing
+
+      - name: Get latest image tag from ACR
+        id: acr_tag
         run: |
-          az aks get-credentials \
-            --resource-group ${{ env.RG_NAME }} \
-            --name ${{ env.AKS_NAME }} \
-            --overwrite-existing
+          TAG=$(az acr repository show-tags \
+            --name ${{ env.ACR_NAME }} \
+            --repository ${{ env.IMAGE_NAME }} \
+            --orderby time_desc \
+            --query "[0]" -o tsv)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Using tag: $TAG"
 
       - name: Deploy to Kubernetes
         run: |
-          IMAGE=${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cp k8s/deployment.yaml /tmp/deployment.yaml
+          sed -i "s|IMAGE_TAG|${{ steps.acr_tag.outputs.tag }}|g" /tmp/deployment.yaml
 
-          kubectl set image deployment/visitor-counter visitor-counter=$IMAGE
-          kubectl rollout status deployment/visitor-counter
+          kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f k8s/secret.yaml
+          kubectl apply -f /tmp/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/ingress.yaml
+          kubectl apply -f k8s/hpa.yaml
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/visitor-counter --timeout=5m
+          kubectl get pods -l app=visitor-counter

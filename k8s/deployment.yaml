@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: visitor-counter
-        image: visitorcounteracr.azurecr.io/visitor-counter:latest
+        image: visitorcounteracr.azurecr.io/visitor-counter:IMAGE_TAG
         imagePullPolicy: Always
         ports:
         - containerPort: 5000
