@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "**" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "**" ]
 
 env:
   ACR_NAME: visitorcounteracr
@@ -137,7 +137,7 @@ jobs:
         
         echo "Resource import completed"
 
-    - name: Terraform apply
+    - name: Terraform apply (Azure infra)
       run: |
         cd infra/terraform
         echo "Running terraform plan..."
@@ -154,6 +154,37 @@ jobs:
       run: |
         cd infra/terraform
         rm -f terraform.tfstate terraform.tfstate.backup tfplan
+
+  helm-deploy:
+      needs: provision
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v3
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Set Azure subscription
+        run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.7.0
+      - name: Terraform init (Helm)
+        run: |
+          cd infra/terraform
+          terraform init -backend=false -input=false
+      - name: Terraform apply (Ingress Helm release)
+        run: |
+          cd infra/terraform
+          if helm list -n ingress-nginx | grep -q ingress-nginx; then
+            echo "Importing ingress-nginx Helm release..."
+            terraform import helm_release.ingress_nginx ingress-nginx || true
+          else
+            echo "Ingress-nginx not found, skipping import"
+          fi
+          terraform plan -target=helm_release.ingress_nginx -out=tfplan -input=false
+          terraform apply -auto-approve tfplan
 
   build-and-push:
     needs: provision
