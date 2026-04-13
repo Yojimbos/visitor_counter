@@ -2,91 +2,53 @@ name: Build and Push to ACR
 
 on:
   push:
-    branches:
-      - main
-      - develop
+    branches: [ "main", "develop" ]
     paths:
       - 'src/**'
-      - 'Dockerfile'
       - '.github/workflows/build-and-push.yml'
 
 env:
   IMAGE_NAME: visitor-counter
-  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-  AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  ACR_NAME: visitorcounteracr
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set image tag (timestamp + short commit hash)
-        id: image_tag
+      - name: Generate image tag (timestamp)
+        id: tag
         run: |
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          SHORT_COMMIT=$(git rev-parse --short=7 HEAD)
-          TAG="${TIMESTAMP}-${SHORT_COMMIT}"
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "Image will be tagged as: ${TAG}"
+          TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
+          echo "tag=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "Generated tag: $TIMESTAMP"
 
-      - name: Azure login
+      - name: Azure Login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure correct Azure subscription and discover ACR
-        run: |
-          az account show
-          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          REGISTRY_NAME=$(az acr list --resource-group visitor-counter-rg --query "[?starts_with(name, 'visitorcounteracr')].name | [0]" -o tsv)
-          if [ -z "$REGISTRY_NAME" ]; then
-            echo "ERROR: ACR not found. Ensure infrastructure is provisioned."
-            exit 1
-          fi
-          echo "REGISTRY_NAME=${REGISTRY_NAME}" >> $GITHUB_ENV
-          echo "Using ACR: $REGISTRY_NAME"
+      - name: Set subscription
+        run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Docker login to ACR
-        run: |
-          echo ${{ secrets.AZURE_CLIENT_SECRET }} | docker login $REGISTRY_NAME.azurecr.io \
-            -u ${{ secrets.AZURE_CLIENT_ID }} --password-stdin
+      - name: Login to ACR
+        run: az acr login --name $ACR_NAME
 
-      - name: Build and push image
+      - name: Build & Push
         run: |
+          IMAGE_TAG=${{ steps.tag.outputs.tag }}
+
           docker build \
-            -t $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:${{ steps.image_tag.outputs.tag }} \
-            -t $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:latest \
+            -t $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG \
+            -t $ACR_NAME.azurecr.io/$IMAGE_NAME:latest \
             -f src/VisitorCounter/Dockerfile ./src/VisitorCounter
 
-          docker push $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:${{ steps.image_tag.outputs.tag }}
-          docker push $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:latest
-          
-      - name: Also tag as latest
-        run: |
-          az acr repository update \
-            --name $REGISTRY_NAME \
-            --image $IMAGE_NAME:${{ steps.image_tag.outputs.tag }} \
-            --set-manifest $IMAGE_NAME:latest || true
-          
-          echo "✓ Latest tag updated"
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:latest
 
-      - name: Update deployment image tag
+      - name: Output image
         run: |
-          sed -i "s/\$(GIT_COMMIT_HASH)/${{ steps.image_tag.outputs.tag }}/g" k8s/deployment.yaml
-          echo "Updated deployment.yaml with image tag: ${{ steps.image_tag.outputs.tag }}"
-
-      - name: Commit updated deployment
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add k8s/deployment.yaml
-          git commit -m "chore: update image tag to ${{ steps.image_tag.outputs.tag }}" || echo "No changes to commit"
-          git push || echo "No push needed"
+          echo "Image pushed:"
+          echo "$ACR_NAME.azurecr.io/$IMAGE_NAME:${{ steps.tag.outputs.tag }}"
