@@ -124,7 +124,7 @@ jobs:
 
         # Import Key Vault access policy for CI service principal
         SP_APP_ID=$(echo "$AZURE_CREDENTIALS" | jq -r .clientId)
-        CURRENT_OBJECT_ID=$(az ad sp show --id $SP_APP_ID --query id -o tsv 2>/dev/null || echo "")
+        CURRENT_OBJECT_ID=$(az ad sp show --id $SP_APP_ID --query objectId -o tsv 2>/dev/null || echo "")
         if [ -n "$CURRENT_OBJECT_ID" ]; then
           POLICY_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$CURRENT_OBJECT_ID"
           if ! terraform state list | grep -q "azurerm_key_vault_access_policy.current"; then
