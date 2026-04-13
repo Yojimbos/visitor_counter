@@ -7,10 +7,10 @@ metadata:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   ingressClassName: nginx
-  tls:
-  - hosts:
-    - visitor-counter.example.com
-    secretName: visitor-counter-tls
+  # tls:
+  # - hosts:
+  #   - visitor-counter.example.com
+  #   secretName: visitor-counter-tls
   rules:
   - host: visitor-counter.example.com
     http:

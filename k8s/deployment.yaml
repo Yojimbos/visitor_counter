@@ -14,10 +14,10 @@ spec:
     spec:
       containers:
       - name: visitor-counter
-        image: nginx:alpine
+        image: visitorcounteracr.azurecr.io/visitor-counter:6c6d722a5a3205f7aff6cada3f12ddad4945a0cf
         imagePullPolicy: Always
         ports:
-        - containerPort: 80
+        - containerPort: 5000
         envFrom:
         - configMapRef:
             name: visitor-counter-config
@@ -26,13 +26,13 @@ spec:
         livenessProbe:
           httpGet:
             path: /
-            port: 80
+            port: 5000
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /
-            port: 80
+            port: 5000
           initialDelaySeconds: 5
           periodSeconds: 5
         resources:
