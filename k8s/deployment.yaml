@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: visitor-counter
-        image: visitorcounteracr.azurecr.io/visitor-counter:6c6d722a5a3205f7aff6cada3f12ddad4945a0cf
+        image: visitorcounteracr.azurecr.io/visitor-counter:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 5000

@@ -60,9 +60,14 @@ jobs:
 
       - name: Build and push image
         run: |
-          docker build -t $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:${{ steps.image_tag.outputs.tag }} -f src/VisitorCounter/Dockerfile ./src/VisitorCounter
-          docker push $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:${{ steps.image_tag.outputs.tag }}
+          docker build \
+            -t $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:${{ steps.image_tag.outputs.tag }} \
+            -t $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:latest \
+            -f src/VisitorCounter/Dockerfile ./src/VisitorCounter
 
+          docker push $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:${{ steps.image_tag.outputs.tag }}
+          docker push $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:latest
+          
       - name: Also tag as latest
         run: |
           az acr repository update \
