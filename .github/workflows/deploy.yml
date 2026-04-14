@@ -25,9 +25,11 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Set Azure subscription
+        run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - run: |
+      - name: Get AKS credentials
+        run: |
           az aks get-credentials \
             --resource-group $AKS_RESOURCE_GROUP \
             --name $AKS_CLUSTER_NAME \
@@ -41,7 +43,7 @@ jobs:
             --namespace ingress-nginx \
             --create-namespace
 
-      - name: Wait ingress
+      - name: Wait ingress-nginx
         run: |
           kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=10m
 
@@ -57,6 +59,8 @@ jobs:
       - name: Wait cert-manager
         run: |
           kubectl rollout status deployment/cert-manager -n cert-manager --timeout=10m
+          kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=10m
+          kubectl rollout status deployment/cert-manager-cainjector -n cert-manager --timeout=10m
 
       - name: Get ingress IP
         id: ip
@@ -64,18 +68,20 @@ jobs:
           for i in {1..60}; do
             IP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
             if [ -n "$IP" ]; then
-              echo "ip=$IP" >> $GITHUB_OUTPUT
+              echo "ip=$IP" >> "$GITHUB_OUTPUT"
               exit 0
             fi
+            echo "Waiting for ingress IP..."
             sleep 10
           done
+          echo "Ingress IP not found"
           exit 1
 
       - name: Build hostname (sslip.io)
         id: host
         run: |
           HOST="visitor-counter.${{ steps.ip.outputs.ip }}.sslip.io"
-          echo "host=$HOST" >> $GITHUB_OUTPUT
+          echo "host=$HOST" >> "$GITHUB_OUTPUT"
           echo "Using hostname: $HOST"
 
       - name: Create ClusterIssuer
@@ -97,14 +103,19 @@ jobs:
                     class: nginx
           EOF
 
-      - name: Get image tag
+      - name: Get latest image tag from ACR
         id: tag
         run: |
           REGISTRY=$(az acr list --resource-group $AKS_RESOURCE_GROUP --query "[0].name" -o tsv)
-          TAG=$(az acr repository show-tags --name $REGISTRY --repository $IMAGE_NAME --orderby time_desc --query "[0]" -o tsv)
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          TAG=$(az acr repository show-tags \
+            --name $REGISTRY \
+            --repository $IMAGE_NAME \
+            --orderby time_desc \
+            --query "[0]" -o tsv)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Using image tag: $TAG"
 
-      - name: Read DB secret
+      - name: Read DB password from Key Vault
         id: db
         run: |
           KV=$(az keyvault list --resource-group $AKS_RESOURCE_GROUP --query "[0].name" -o tsv)
@@ -112,14 +123,21 @@ jobs:
 
           CONN="Host=visitor-counter-postgres-ne.postgres.database.azure.com;Database=visitorcounter;Username=postgresadmin;Password=${PASS};SSL Mode=Require;Trust Server Certificate=true;"
 
-          echo "pass=$PASS" >> $GITHUB_OUTPUT
-          echo "conn=$CONN" >> $GITHUB_OUTPUT
+          {
+            echo "pass<<EOF"
+            echo "$PASS"
+            echo "EOF"
+            echo "conn<<EOF"
+            echo "$CONN"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Create k8s secret
+      - name: Create Kubernetes secret
         run: |
-          kubectl delete secret visitor-counter-secret --ignore-not-found
+          kubectl delete secret visitor-counter-secret -n $NAMESPACE --ignore-not-found=true
 
           kubectl create secret generic visitor-counter-secret \
+            -n $NAMESPACE \
             --from-literal=DB_HOST=visitor-counter-postgres-ne.postgres.database.azure.com \
             --from-literal=DB_USER=postgresadmin \
             --from-literal=DB_PASSWORD='${{ steps.db.outputs.pass }}' \
@@ -127,19 +145,43 @@ jobs:
 
       - name: Render manifests
         run: |
-          sed -i "s|IMAGE_TAG|${{ steps.tag.outputs.tag }}|g" k8s/deployment.yaml
-          sed -i "s|APP_HOSTNAME|${{ steps.host.outputs.host }}|g" k8s/ingress.yaml
+          cp k8s/deployment.yaml /tmp/deployment.yaml
+          cp k8s/ingress.yaml /tmp/ingress.yaml
 
-      - name: Apply
+          sed -i "s|IMAGE_TAG|${{ steps.tag.outputs.tag }}|g" /tmp/deployment.yaml
+          sed -i "s|APP_HOSTNAME|${{ steps.host.outputs.host }}|g" /tmp/ingress.yaml
+
+          echo "Rendered ingress:"
+          cat /tmp/ingress.yaml
+
+      - name: Apply manifests
         run: |
           kubectl apply -f k8s/configmap.yaml
-          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f /tmp/deployment.yaml
           kubectl apply -f k8s/service.yaml
-          kubectl apply -f k8s/ingress.yaml
+          kubectl apply -f /tmp/ingress.yaml
+          kubectl apply -f k8s/hpa.yaml
 
-      - name: Wait app
+      - name: Wait for app rollout
         run: |
-          kubectl rollout status deployment/visitor-counter --timeout=10m
+          kubectl rollout status deployment/visitor-counter -n $NAMESPACE --timeout=10m
+
+      - name: Wait for TLS secret
+        run: |
+          for i in {1..60}; do
+            if kubectl get secret visitor-counter-tls -n $NAMESPACE >/dev/null 2>&1; then
+              echo "TLS secret created"
+              exit 0
+            fi
+            echo "Waiting for visitor-counter-tls..."
+            sleep 10
+          done
+
+          kubectl get certificate -n $NAMESPACE || true
+          kubectl get certificaterequest -n $NAMESPACE || true
+          kubectl get challenge -n $NAMESPACE || true
+          kubectl get order -n $NAMESPACE || true
+          exit 1
 
       - name: Smoke test
         run: |
@@ -147,11 +189,15 @@ jobs:
           echo "Testing $URL"
 
           for i in {1..30}; do
-            code=$(curl -k -s -o /dev/null -w "%{http_code}" $URL || true)
+            code=$(curl -k -s -o /dev/null -w "%{http_code}" "$URL" || true)
             if [ "$code" = "200" ]; then
               echo "SUCCESS: $URL"
               exit 0
             fi
+            echo "Current code: $code"
             sleep 10
           done
+
+          kubectl logs -n ingress-nginx deploy/ingress-nginx-controller --tail=100 || true
+          kubectl logs -n $NAMESPACE deploy/visitor-counter --tail=100 || true
           exit 1
