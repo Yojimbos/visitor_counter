@@ -20,7 +20,8 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
+app.MapGet("/healthz", () => Results.Ok("ok"));
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthorization();

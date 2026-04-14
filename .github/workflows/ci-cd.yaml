@@ -165,5 +165,14 @@ jobs:
 
       - name: Verify deployment
         run: |
-          kubectl rollout status deployment/visitor-counter --timeout=5m
+          kubectl rollout status deployment/visitor-counter --timeout=1m
           kubectl get pods -l app=visitor-counter
+      - name: Debug deployment
+        if: always()
+        run: |
+          kubectl get deploy
+          kubectl get rs
+          kubectl get pods -o wide
+          kubectl describe deployment visitor-counter
+          kubectl describe pods -l app=visitor-counter
+          kubectl logs -l app=visitor-counter --all-containers=true --tail=200

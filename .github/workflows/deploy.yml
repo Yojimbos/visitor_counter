@@ -60,24 +60,29 @@ jobs:
             --resource-group $AKS_RESOURCE_GROUP \
             --name $AKS_CLUSTER_NAME
 
-      - name: Retrieve database password from Key Vault
+      - name: Retrieve database secrets from Key Vault
         run: |
-          # Retrieve PostgreSQL password from Key Vault
           KEYVAULT_NAME=$(az keyvault list --resource-group $AKS_RESOURCE_GROUP --query "[0].name" -o tsv)
           if [ -z "$KEYVAULT_NAME" ]; then
             echo "ERROR: No Key Vault found in resource group"
             exit 1
           fi
-          
+
           DB_PASSWORD=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name postgres-password --query value -o tsv 2>/dev/null || echo "")
-          
-          if [ -n "$DB_PASSWORD" ]; then
-            sed -i "s|DB_PASSWORD:.*|DB_PASSWORD: $DB_PASSWORD|g" k8s/secret.yaml
-            echo "✓ Database password injected from Key Vault"
-          else
-            echo "⚠ Could not retrieve database password from Key Vault"
+          CONNECTION_STRING=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name ConnectionStrings--DefaultConnection --query value -o tsv 2>/dev/null || echo "")
+
+          if [ -z "$DB_PASSWORD" ]; then
+            echo "ERROR: postgres-password secret is empty or missing"
+            exit 1
           fi
 
+          kubectl create secret generic visitor-counter-secret \
+            --from-literal=DB_HOST="visitor-counter-postgres-ne.postgres.database.azure.com" \
+            --from-literal=DB_USER="postgresadmin" \
+            --from-literal=DB_PASSWORD="$DB_PASSWORD" \
+            --from-literal=ConnectionStrings__DefaultConnection="$CONNECTION_STRING" \
+            --dry-run=client -o yaml | kubectl apply -f -
+              
       - name: Get latest image tag from ACR
         id: acr_tag
         run: |
