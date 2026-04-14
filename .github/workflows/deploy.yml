@@ -60,7 +60,7 @@ jobs:
             --resource-group $AKS_RESOURCE_GROUP \
             --name $AKS_CLUSTER_NAME
 
-      - name: Retrieve database secrets from Key Vault
+      - name: Retrieve database secrets from Key Vault and create Kubernetes secret
         run: |
           KEYVAULT_NAME=$(az keyvault list --resource-group $AKS_RESOURCE_GROUP --query "[0].name" -o tsv)
           if [ -z "$KEYVAULT_NAME" ]; then
@@ -72,7 +72,7 @@ jobs:
           CONNECTION_STRING=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name ConnectionStrings--DefaultConnection --query value -o tsv 2>/dev/null || echo "")
 
           if [ -z "$DB_PASSWORD" ]; then
-            echo "ERROR: postgres-password secret is empty or missing"
+            echo "ERROR: postgres-password is empty"
             exit 1
           fi
 
@@ -82,7 +82,7 @@ jobs:
             --from-literal=DB_PASSWORD="$DB_PASSWORD" \
             --from-literal=ConnectionStrings__DefaultConnection="$CONNECTION_STRING" \
             --dry-run=client -o yaml | kubectl apply -f -
-              
+
       - name: Get latest image tag from ACR
         id: acr_tag
         run: |
@@ -94,20 +94,30 @@ jobs:
           echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
           echo "Latest image tag: ${LATEST_TAG}"
 
+      - name: Install ingress-nginx controller
+        run: |
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo update
+
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            --namespace ingress-nginx \
+            --create-namespace \
+            --set controller.replicaCount=1
+
+      - name: Wait for ingress controller
+        run: |
+          kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=5m
+          kubectl get svc -n ingress-nginx
+
       - name: Deploy to Kubernetes
         run: |
-          # Update deployment image with the latest tag
-          sed -i "s/\$(GIT_COMMIT_HASH)/${{ steps.acr_tag.outputs.tag }}/g" k8s/deployment.yaml
-          
-          # Apply all K8s resources
+          sed -i "s|IMAGE_TAG|${{ steps.acr_tag.outputs.tag }}|g" k8s/deployment.yaml
+
           kubectl apply -f k8s/configmap.yaml
-          kubectl apply -f k8s/secret.yaml
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
           kubectl apply -f k8s/ingress.yaml
           kubectl apply -f k8s/hpa.yaml
-          
-          echo "✓ Kubernetes resources deployed"
 
       - name: Verify deployment
         run: |
