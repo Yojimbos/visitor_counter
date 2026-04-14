@@ -1,9 +1,13 @@
 using Azure.Identity;
+
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Configuration.AddAzureKeyVault(
-    new Uri("https://visitor-kv-20260410.vault.azure.net/"),
-    new DefaultAzureCredential());
+if (!builder.Environment.IsDevelopment())
+{
+    builder.Configuration.AddAzureKeyVault(
+        new Uri("https://visitor-kv-20260410.vault.azure.net/"),
+        new DefaultAzureCredential());
+}
 
 // Add services to the container.
 builder.Services.AddRazorPages();
@@ -16,7 +20,8 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
+app.MapGet("/healthz", () => Results.Ok("ok"));
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthorization();
