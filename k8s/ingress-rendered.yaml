@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: visitor-counter-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - visitor-counter.20.8.200.156.sslip.io
+    secretName: visitor-counter-tls
+  rules:
+  - host: visitor-counter.20.8.200.156.sslip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: visitor-counter-service
+            port:
+              number: 80
