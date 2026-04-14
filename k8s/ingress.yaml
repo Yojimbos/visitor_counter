@@ -3,16 +3,16 @@ kind: Ingress
 metadata:
   name: visitor-counter-ingress
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   ingressClassName: nginx
-  # tls:
-  # - hosts:
-  #   - visitor-counter.example.com
-  #   secretName: visitor-counter-tls
+  tls:
+  - hosts:
+    - APP_HOSTNAME
+    secretName: visitor-counter-tls
   rules:
-  - host: visitor-counter.example.com
+  - host: APP_HOSTNAME
     http:
       paths:
       - path: /

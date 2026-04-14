@@ -1,18 +1,11 @@
 name: Deploy to AKS
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'k8s/**'
-      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
   workflow_run:
     workflows: ["Build and Push to ACR"]
-    types:
-      - completed
-    branches:
-      - main
+    types: [completed]
+    branches: [main]
 
 env:
   AKS_CLUSTER_NAME: visitor-counter-aks
@@ -23,109 +16,142 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'push' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Azure login
-        uses: azure/login@v1
+      - uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure correct Azure subscription
-        run: |
-          az account show
-          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Verify AKS cluster exists
-        run: |
-          echo "Verifying AKS cluster '${AKS_CLUSTER_NAME}' in '${AKS_RESOURCE_GROUP}'..."
-          if ! az aks show --resource-group $AKS_RESOURCE_GROUP --name $AKS_CLUSTER_NAME &>/dev/null; then
-            echo "ERROR: AKS cluster not found. Please run the provision job in CI/CD pipeline first."
-            exit 1
-          fi
-          echo "✓ AKS cluster exists and is ready"
-
-      - name: Discover ACR registry name
-        run: |
-          REGISTRY_NAME=$(az acr list --resource-group $AKS_RESOURCE_GROUP --query "[?starts_with(name, 'visitorcounteracr')].name | [0]" -o tsv)
-          echo "REGISTRY_NAME=${REGISTRY_NAME}" >> $GITHUB_ENV
-          echo "Using ACR registry: ${REGISTRY_NAME}"
-
-      - name: Get AKS credentials
-        run: |
+      - run: |
           az aks get-credentials \
             --resource-group $AKS_RESOURCE_GROUP \
-            --name $AKS_CLUSTER_NAME
+            --name $AKS_CLUSTER_NAME \
+            --overwrite-existing
 
-      - name: Retrieve database secrets from Key Vault and create Kubernetes secret
-        run: |
-          KEYVAULT_NAME=$(az keyvault list --resource-group $AKS_RESOURCE_GROUP --query "[0].name" -o tsv)
-          if [ -z "$KEYVAULT_NAME" ]; then
-            echo "ERROR: No Key Vault found in resource group"
-            exit 1
-          fi
-
-          DB_PASSWORD=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name postgres-password --query value -o tsv 2>/dev/null || echo "")
-          CONNECTION_STRING=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name ConnectionStrings--DefaultConnection --query value -o tsv 2>/dev/null || echo "")
-
-          if [ -z "$DB_PASSWORD" ]; then
-            echo "ERROR: postgres-password is empty"
-            exit 1
-          fi
-
-          kubectl create secret generic visitor-counter-secret \
-            --from-literal=DB_HOST="visitor-counter-postgres-ne.postgres.database.azure.com" \
-            --from-literal=DB_USER="postgresadmin" \
-            --from-literal=DB_PASSWORD="$DB_PASSWORD" \
-            --from-literal=ConnectionStrings__DefaultConnection="$CONNECTION_STRING" \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Get latest image tag from ACR
-        id: acr_tag
-        run: |
-          LATEST_TAG=$(az acr repository show-tags \
-            --name $REGISTRY_NAME \
-            --repository $IMAGE_NAME \
-            --orderby time_desc \
-            --query '[0]' -o tsv)
-          echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
-          echo "Latest image tag: ${LATEST_TAG}"
-
-      - name: Install ingress-nginx controller
+      - name: Install ingress-nginx
         run: |
           helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
           helm repo update
-
           helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
             --namespace ingress-nginx \
+            --create-namespace
+
+      - name: Wait ingress
+        run: |
+          kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=10m
+
+      - name: Install cert-manager
+        run: |
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo update
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            --namespace cert-manager \
             --create-namespace \
-            --set controller.replicaCount=1
+            --set crds.enabled=true
 
-      - name: Wait for ingress controller
+      - name: Wait cert-manager
         run: |
-          kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=5m
-          kubectl get svc -n ingress-nginx
+          kubectl rollout status deployment/cert-manager -n cert-manager --timeout=10m
 
-      - name: Deploy to Kubernetes
+      - name: Get ingress IP
+        id: ip
         run: |
-          sed -i "s|IMAGE_TAG|${{ steps.acr_tag.outputs.tag }}|g" k8s/deployment.yaml
+          for i in {1..60}; do
+            IP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            if [ -n "$IP" ]; then
+              echo "ip=$IP" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
 
+      - name: Build hostname (sslip.io)
+        id: host
+        run: |
+          HOST="visitor-counter.${{ steps.ip.outputs.ip }}.sslip.io"
+          echo "host=$HOST" >> $GITHUB_OUTPUT
+          echo "Using hostname: $HOST"
+
+      - name: Create ClusterIssuer
+        run: |
+          cat <<EOF | kubectl apply -f -
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: letsencrypt-prod
+          spec:
+            acme:
+              email: ${{ secrets.LETSENCRYPT_EMAIL }}
+              server: https://acme-v02.api.letsencrypt.org/directory
+              privateKeySecretRef:
+                name: letsencrypt-prod
+              solvers:
+              - http01:
+                  ingress:
+                    class: nginx
+          EOF
+
+      - name: Get image tag
+        id: tag
+        run: |
+          REGISTRY=$(az acr list --resource-group $AKS_RESOURCE_GROUP --query "[0].name" -o tsv)
+          TAG=$(az acr repository show-tags --name $REGISTRY --repository $IMAGE_NAME --orderby time_desc --query "[0]" -o tsv)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Read DB secret
+        id: db
+        run: |
+          KV=$(az keyvault list --resource-group $AKS_RESOURCE_GROUP --query "[0].name" -o tsv)
+          PASS=$(az keyvault secret show --vault-name $KV --name postgres-password --query value -o tsv)
+
+          CONN="Host=visitor-counter-postgres-ne.postgres.database.azure.com;Database=visitorcounter;Username=postgresadmin;Password=${PASS};SSL Mode=Require;Trust Server Certificate=true;"
+
+          echo "pass=$PASS" >> $GITHUB_OUTPUT
+          echo "conn=$CONN" >> $GITHUB_OUTPUT
+
+      - name: Create k8s secret
+        run: |
+          kubectl delete secret visitor-counter-secret --ignore-not-found
+
+          kubectl create secret generic visitor-counter-secret \
+            --from-literal=DB_HOST=visitor-counter-postgres-ne.postgres.database.azure.com \
+            --from-literal=DB_USER=postgresadmin \
+            --from-literal=DB_PASSWORD='${{ steps.db.outputs.pass }}' \
+            --from-literal=ConnectionStrings__DefaultConnection='${{ steps.db.outputs.conn }}'
+
+      - name: Render manifests
+        run: |
+          sed -i "s|IMAGE_TAG|${{ steps.tag.outputs.tag }}|g" k8s/deployment.yaml
+          sed -i "s|APP_HOSTNAME|${{ steps.host.outputs.host }}|g" k8s/ingress.yaml
+
+      - name: Apply
+        run: |
           kubectl apply -f k8s/configmap.yaml
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
           kubectl apply -f k8s/ingress.yaml
-          kubectl apply -f k8s/hpa.yaml
 
-      - name: Verify deployment
+      - name: Wait app
         run: |
-          echo "Waiting for deployment to be ready..."
-          kubectl rollout status deployment/visitor-counter -n $NAMESPACE --timeout=5m
-          echo "✓ Deployment is ready"
-          
-          echo "Listing pods..."
-          kubectl get pods -n $NAMESPACE -l app=visitor-counter
-          
-          echo "✓ Deployment verification complete"
+          kubectl rollout status deployment/visitor-counter --timeout=10m
+
+      - name: Smoke test
+        run: |
+          URL="https://${{ steps.host.outputs.host }}"
+          echo "Testing $URL"
+
+          for i in {1..30}; do
+            code=$(curl -k -s -o /dev/null -w "%{http_code}" $URL || true)
+            if [ "$code" = "200" ]; then
+              echo "SUCCESS: $URL"
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
