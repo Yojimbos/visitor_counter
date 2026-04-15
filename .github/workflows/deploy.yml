@@ -235,20 +235,6 @@ jobs:
           exit 1
 
       - name: Smoke test
+        shell: pwsh
         run: |
-          URL="https://${{ steps.host.outputs.host }}"
-          echo "Testing $URL"
-
-          for i in {1..30}; do
-            code=$(curl -k -s -o /dev/null -w "%{http_code}" "$URL" || true)
-            if [ "$code" = "200" ]; then
-              echo "SUCCESS: $URL"
-              exit 0
-            fi
-            echo "Current code: $code"
-            sleep 10
-          done
-
-          kubectl logs -n ingress-nginx deploy/ingress-nginx-controller --tail=100 || true
-          kubectl logs -n $NAMESPACE deploy/visitor-counter --tail=100 || true
-          exit 1
+          ./scripts/Test-Deployment.ps1 -Namespace $env:NAMESPACE -HostName '${{ steps.host.outputs.host }}'

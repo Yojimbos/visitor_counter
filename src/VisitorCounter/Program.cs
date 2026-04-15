@@ -1,5 +1,6 @@
 using Azure.Identity;
 using Prometheus;
+using VisitorCounter.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +13,8 @@ if (!builder.Environment.IsDevelopment())
 
 // Add services to the container.
 builder.Services.AddRazorPages();
+builder.Services.AddScoped<IVisitRepository, NpgsqlVisitRepository>();
+builder.Services.AddScoped<VisitCounterService>();
 
 var app = builder.Build();
 
