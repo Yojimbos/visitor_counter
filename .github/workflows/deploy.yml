@@ -132,6 +132,32 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Read backup storage settings from Key Vault
+        id: backup
+        run: |
+          KV=$(az keyvault list --resource-group $AKS_RESOURCE_GROUP --query "[0].name" -o tsv)
+          ACCOUNT=$(az keyvault secret show --vault-name $KV --name backup-storage-account-name --query value -o tsv 2>/dev/null || true)
+          KEY=$(az keyvault secret show --vault-name $KV --name backup-storage-account-key --query value -o tsv 2>/dev/null || true)
+          CONTAINER=$(az keyvault secret show --vault-name $KV --name backup-storage-container --query value -o tsv 2>/dev/null || true)
+
+          if [ -z "$ACCOUNT" ] || [ -z "$KEY" ] || [ -z "$CONTAINER" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          {
+            echo "enabled=true"
+            echo "account<<EOF"
+            echo "$ACCOUNT"
+            echo "EOF"
+            echo "key<<EOF"
+            echo "$KEY"
+            echo "EOF"
+            echo "container<<EOF"
+            echo "$CONTAINER"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create Kubernetes secret
         run: |
           kubectl delete secret visitor-counter-secret -n $NAMESPACE --ignore-not-found=true
@@ -142,6 +168,17 @@ jobs:
             --from-literal=DB_USER=postgresadmin \
             --from-literal=DB_PASSWORD='${{ steps.db.outputs.pass }}' \
             --from-literal=ConnectionStrings__DefaultConnection='${{ steps.db.outputs.conn }}'
+
+      - name: Create backup secret
+        if: ${{ steps.backup.outputs.enabled == 'true' }}
+        run: |
+          kubectl delete secret visitor-counter-backup-secret -n $NAMESPACE --ignore-not-found=true
+
+          kubectl create secret generic visitor-counter-backup-secret \
+            -n $NAMESPACE \
+            --from-literal=BACKUP_STORAGE_ACCOUNT='${{ steps.backup.outputs.account }}' \
+            --from-literal=BACKUP_STORAGE_KEY='${{ steps.backup.outputs.key }}' \
+            --from-literal=BACKUP_STORAGE_CONTAINER='${{ steps.backup.outputs.container }}'
 
       - name: Reset old TLS resources
         run: |
@@ -169,6 +206,11 @@ jobs:
           kubectl apply -f k8s/service.yaml
           kubectl apply -f /tmp/ingress.yaml
           kubectl apply -f k8s/hpa.yaml
+
+      - name: Apply backup CronJob when backup storage is configured
+        if: ${{ steps.backup.outputs.enabled == 'true' }}
+        run: |
+          kubectl apply -f k8s/backup-cronjob.yaml
 
       - name: Apply ServiceMonitor when monitoring stack is installed
         run: |

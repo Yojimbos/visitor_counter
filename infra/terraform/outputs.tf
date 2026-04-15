@@ -34,3 +34,11 @@ output "postgres_admin_password" {
   value     = random_password.postgres_admin.result
   sensitive = true
 }
+
+output "backup_storage_account_name" {
+  value = azurerm_storage_account.backup.name
+}
+
+output "backup_storage_container_name" {
+  value = azurerm_storage_container.logical_backups.name
+}

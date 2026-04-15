@@ -108,6 +108,14 @@ The application is a simple visitor counter that increments a counter in Azure D
 - RBAC for cluster access
 - Secrets stored in Key Vault
 - Image vulnerability scanning (add to pipeline)
+- Key Vault purge protection enabled
+
+## Database Resilience
+
+- Native PostgreSQL backups are explicitly retained for 7 days in Terraform
+- Weekly logical backups are exported to private Blob Storage with geo-redundant replication
+- Blob lifecycle management removes old backup files automatically
+- Private PostgreSQL networking is prepared in Terraform behind a migration flag because the current database region and AKS VNet region do not yet match
 
 ## Monitoring
 
@@ -116,6 +124,7 @@ The application is a simple visitor counter that increments a counter in Azure D
 - The app exposes Prometheus metrics at `/metrics`
 - GitHub Actions workflow `.github/workflows/monitoring.yml` installs the monitoring stack
 - The app deployment workflow applies `k8s/servicemonitor.yaml` automatically when the monitoring CRD is present
+- A Kubernetes `CronJob` creates a weekly PostgreSQL logical backup and uploads it to Azure Blob Storage
 - Health checks and probes are configured
 
 ## Scaling
