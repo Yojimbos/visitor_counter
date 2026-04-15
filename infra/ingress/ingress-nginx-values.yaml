@@ -1,0 +1,34 @@
+controller:
+  replicaCount: 2
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+  minAvailable: 1
+
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+          app.kubernetes.io/instance: ingress-nginx
+          app.kubernetes.io/name: ingress-nginx
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: controller
+                app.kubernetes.io/instance: ingress-nginx
+                app.kubernetes.io/name: ingress-nginx

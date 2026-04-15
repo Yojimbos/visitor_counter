@@ -41,7 +41,8 @@ jobs:
           helm repo update
           helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
             --namespace ingress-nginx \
-            --create-namespace
+            --create-namespace \
+            --values infra/ingress/ingress-nginx-values.yaml
 
       - name: Wait ingress-nginx
         run: |

@@ -131,3 +131,5 @@ The application is a simple visitor counter that increments a counter in Azure D
 
 - HPA configured for CPU/memory scaling
 - Can scale from 1 to 10 replicas
+- AKS default node pool runs with 2 nodes as the cheapest HA baseline
+- ingress-nginx runs with 2 controller replicas, pod spread, and disruption protection

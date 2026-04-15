@@ -32,6 +32,12 @@ variable "aks_node_size" {
   default     = "Standard_B2s_v2"
 }
 
+variable "aks_node_count" {
+  description = "Node count for the default AKS node pool. Cheapest reasonable HA baseline is 2."
+  type        = number
+  default     = 2
+}
+
 variable "postgres_backup_retention_days" {
   description = "Native Azure PostgreSQL backup retention in days."
   type        = number
