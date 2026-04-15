@@ -180,14 +180,6 @@ jobs:
             --from-literal=BACKUP_STORAGE_KEY='${{ steps.backup.outputs.key }}' \
             --from-literal=BACKUP_STORAGE_CONTAINER='${{ steps.backup.outputs.container }}'
 
-      - name: Reset old TLS resources
-        run: |
-          kubectl delete certificate visitor-counter-tls -n $NAMESPACE --ignore-not-found=true
-          kubectl delete secret visitor-counter-tls -n $NAMESPACE --ignore-not-found=true
-          kubectl delete challenge --all -n $NAMESPACE --ignore-not-found=true || true
-          kubectl delete order --all -n $NAMESPACE --ignore-not-found=true || true
-          kubectl delete certificaterequest --all -n $NAMESPACE --ignore-not-found=true || true
-
       - name: Render manifests
         run: |
           cp k8s/deployment.yaml /tmp/deployment.yaml
