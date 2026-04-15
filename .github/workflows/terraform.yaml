@@ -31,6 +31,13 @@ jobs:
       run: |
         SUBSCRIPTION_ID=$(az account show --query id -o tsv)
         RG_NAME="visitor-counter-rg"
+        ACR_NAME="visitorcounteracr"
+        KV_NAME="visitor-kv-20260410"
+        POSTGRES_NAME="visitor-counter-postgres-ne"
+        DB_NAME="visitorcounter"
+        BACKUP_STORAGE=$(az storage account list --resource-group $RG_NAME --query "[?starts_with(name, 'vcbackup')].name | [0]" -o tsv 2>/dev/null || echo "")
+        CURRENT_OBJECT_ID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv 2>/dev/null || echo "")
+        KUBELET_OBJECT_ID=$(az aks show --resource-group $RG_NAME --name visitor-counter-aks --query identityProfile.kubeletidentity.objectId -o tsv 2>/dev/null || echo "")
 
         import_if_missing () {
           RESOURCE=$1
@@ -45,6 +52,25 @@ jobs:
         # Resource group
         if az group exists --name $RG_NAME; then
           import_if_missing "azurerm_resource_group.rg" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME"
+        fi
+
+        # Container registry
+        if az acr show --resource-group $RG_NAME --name $ACR_NAME >/dev/null 2>&1; then
+          import_if_missing "azurerm_container_registry.acr" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerRegistry/registries/$ACR_NAME"
+        fi
+
+        # Key Vault
+        if az keyvault show --resource-group $RG_NAME --name $KV_NAME >/dev/null 2>&1; then
+          import_if_missing "azurerm_key_vault.kv" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME"
+        fi
+
+        # Key Vault access policies
+        if [ -n "$CURRENT_OBJECT_ID" ]; then
+          import_if_missing "azurerm_key_vault_access_policy.current" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$CURRENT_OBJECT_ID"
+        fi
+
+        if [ -n "$KUBELET_OBJECT_ID" ]; then
+          import_if_missing "azurerm_key_vault_access_policy.aks_identity" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME/objectId/$KUBELET_OBJECT_ID"
         fi
 
         # Virtual network
@@ -62,11 +88,68 @@ jobs:
           import_if_missing "azurerm_kubernetes_cluster.aks" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/visitor-counter-aks"
         fi
 
+        # PostgreSQL flexible server
+        if az postgres flexible-server show --resource-group $RG_NAME --name $POSTGRES_NAME >/dev/null 2>&1; then
+          import_if_missing "azurerm_postgresql_flexible_server.postgres" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.DBforPostgreSQL/flexibleServers/$POSTGRES_NAME"
+        fi
+
+        # PostgreSQL database
+        if az postgres flexible-server db show --resource-group $RG_NAME --server-name $POSTGRES_NAME --database-name $DB_NAME >/dev/null 2>&1; then
+          import_if_missing "azurerm_postgresql_flexible_server_database.db" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.DBforPostgreSQL/flexibleServers/$POSTGRES_NAME/databases/$DB_NAME"
+        fi
+
+        # Backup storage resources
+        if [ -n "$BACKUP_STORAGE" ]; then
+          import_if_missing "azurerm_storage_account.backup" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Storage/storageAccounts/$BACKUP_STORAGE"
+
+          if az storage container exists --account-name $BACKUP_STORAGE --name postgres-logical-backups --auth-mode login --query exists -o tsv 2>/dev/null | grep -qi true; then
+            import_if_missing "azurerm_storage_container.logical_backups" "https://$BACKUP_STORAGE.blob.core.windows.net/postgres-logical-backups"
+          fi
+
+          if az storage account management-policy show --account-name $BACKUP_STORAGE --resource-group $RG_NAME >/dev/null 2>&1; then
+            import_if_missing "azurerm_storage_management_policy.backup_retention" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Storage/storageAccounts/$BACKUP_STORAGE/managementPolicies/default"
+          fi
+        fi
+
         # Key Vault secrets
-        KV_NAME="visitor-kv-20260410"
         DB_HOST_URI=$(az keyvault secret show --vault-name $KV_NAME --name db-host --query id -o tsv 2>/dev/null || echo "")
         if [ -n "$DB_HOST_URI" ]; then
           import_if_missing "azurerm_key_vault_secret.db_host" "$DB_HOST_URI"
+        fi
+
+        DB_USER_URI=$(az keyvault secret show --vault-name $KV_NAME --name db-user --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$DB_USER_URI" ]; then
+          import_if_missing "azurerm_key_vault_secret.db_user" "$DB_USER_URI"
+        fi
+
+        DB_PASSWORD_URI=$(az keyvault secret show --vault-name $KV_NAME --name ConnectionStrings--DefaultConnection --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$DB_PASSWORD_URI" ]; then
+          import_if_missing "azurerm_key_vault_secret.db_password" "$DB_PASSWORD_URI"
+        fi
+
+        POSTGRES_ADMIN_URI=$(az keyvault secret show --vault-name $KV_NAME --name postgres-password --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$POSTGRES_ADMIN_URI" ]; then
+          import_if_missing "azurerm_key_vault_secret.postgres_password" "$POSTGRES_ADMIN_URI"
+        fi
+
+        ACR_LOGIN_URI=$(az keyvault secret show --vault-name $KV_NAME --name acr-login-server --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$ACR_LOGIN_URI" ]; then
+          import_if_missing "azurerm_key_vault_secret.acr_login_server" "$ACR_LOGIN_URI"
+        fi
+
+        BACKUP_ACCOUNT_URI=$(az keyvault secret show --vault-name $KV_NAME --name backup-storage-account-name --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$BACKUP_ACCOUNT_URI" ]; then
+          import_if_missing "azurerm_key_vault_secret.backup_storage_account_name" "$BACKUP_ACCOUNT_URI"
+        fi
+
+        BACKUP_KEY_URI=$(az keyvault secret show --vault-name $KV_NAME --name backup-storage-account-key --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$BACKUP_KEY_URI" ]; then
+          import_if_missing "azurerm_key_vault_secret.backup_storage_account_key" "$BACKUP_KEY_URI"
+        fi
+
+        BACKUP_CONTAINER_URI=$(az keyvault secret show --vault-name $KV_NAME --name backup-storage-container --query id -o tsv 2>/dev/null || echo "")
+        if [ -n "$BACKUP_CONTAINER_URI" ]; then
+          import_if_missing "azurerm_key_vault_secret.backup_storage_container" "$BACKUP_CONTAINER_URI"
         fi
       working-directory: infra/terraform
     - name: Terraform Plan

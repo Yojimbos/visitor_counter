@@ -130,6 +130,7 @@ resource "azurerm_postgresql_flexible_server" "postgres" {
 
   lifecycle {
     ignore_changes = [
+      administrator_password,
       zone # Zone cannot be changed after creation
     ]
   }
