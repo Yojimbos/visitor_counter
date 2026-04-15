@@ -14,6 +14,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+$attempts = 12
+$requestTimeoutSeconds = 15
+
+function Get-RequestErrorMessage {
+    param([System.Management.Automation.ErrorRecord]$ErrorRecord)
+
+    if ($null -ne $ErrorRecord.Exception.InnerException) {
+        return $ErrorRecord.Exception.InnerException.Message
+    }
+
+    return $ErrorRecord.Exception.Message
+}
 
 function Assert-CommandSucceeded {
     param(
@@ -64,27 +78,33 @@ catch {
 }
 
 $url = "https://$HostName"
-$attempts = 30
+$applicationReachable = $false
 
 for ($i = 1; $i -le $attempts; $i++) {
     try {
-        $response = Invoke-WebRequest -Uri $url -UseBasicParsing
+        $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec $requestTimeoutSeconds
         if ($response.StatusCode -eq 200) {
             Write-Host "Application responded with HTTP 200."
+            $applicationReachable = $true
             break
         }
     }
     catch {
-        if ($i -eq $attempts) {
-            throw "Application did not return HTTP 200 after $attempts attempts."
-        }
+        Write-Host "Attempt $i/$attempts to reach $url failed: $(Get-RequestErrorMessage $_)"
     }
 
-    Start-Sleep -Seconds 10
+    Start-Sleep -Seconds 5
+}
+
+if (-not $applicationReachable) {
+    kubectl get ingress $IngressName -n $Namespace -o wide
+    kubectl get service $ServiceName -n $Namespace -o wide
+    kubectl get service ingress-nginx-controller -n ingress-nginx -o wide
+    throw "Application did not return HTTP 200 after $attempts attempts."
 }
 
 try {
-    $metricsResponse = Invoke-WebRequest -Uri "$url/metrics" -UseBasicParsing
+    $metricsResponse = Invoke-WebRequest -Uri "$url/metrics" -UseBasicParsing -TimeoutSec $requestTimeoutSeconds
     if ($metricsResponse.StatusCode -ne 200) {
         throw "Metrics endpoint returned status $($metricsResponse.StatusCode)."
     }
