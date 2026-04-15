@@ -1,0 +1,86 @@
+name: Install Monitoring Stack
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "infra/monitoring/**"
+      - ".github/workflows/monitoring.yml"
+
+env:
+  AKS_CLUSTER_NAME: visitor-counter-aks
+  AKS_RESOURCE_GROUP: visitor-counter-rg
+  MONITORING_NAMESPACE: monitoring
+
+jobs:
+  install-monitoring:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set Azure subscription
+        run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate required secrets
+        env:
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+        run: |
+          if [ -z "$GRAFANA_ADMIN_PASSWORD" ]; then
+            echo "GRAFANA_ADMIN_PASSWORD is required"
+            exit 1
+          fi
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group $AKS_RESOURCE_GROUP \
+            --name $AKS_CLUSTER_NAME \
+            --overwrite-existing
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm repo update
+
+      - name: Install kube-prometheus-stack
+        run: |
+          helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+            --namespace $MONITORING_NAMESPACE \
+            --create-namespace \
+            --values infra/monitoring/kube-prometheus-stack-values.yaml \
+            --set grafana.adminPassword='${{ secrets.GRAFANA_ADMIN_PASSWORD }}'
+
+      - name: Install Loki
+        run: |
+          helm upgrade --install loki grafana/loki \
+            --namespace $MONITORING_NAMESPACE \
+            --values infra/monitoring/loki-values.yaml
+
+      - name: Install Promtail
+        run: |
+          helm upgrade --install promtail grafana/promtail \
+            --namespace $MONITORING_NAMESPACE \
+            --values infra/monitoring/promtail-values.yaml
+
+      - name: Wait for monitoring components
+        run: |
+          kubectl rollout status deployment/kube-prometheus-stack-operator -n $MONITORING_NAMESPACE --timeout=10m
+          kubectl rollout status deployment/kube-prometheus-stack-grafana -n $MONITORING_NAMESPACE --timeout=10m
+          kubectl rollout status statefulset/prometheus-kube-prometheus-stack-prometheus -n $MONITORING_NAMESPACE --timeout=10m
+          kubectl rollout status statefulset/loki -n $MONITORING_NAMESPACE --timeout=10m
+          kubectl rollout status daemonset/promtail -n $MONITORING_NAMESPACE --timeout=10m
+
+      - name: Show access hints
+        run: |
+          echo "Grafana service:"
+          kubectl get svc kube-prometheus-stack-grafana -n $MONITORING_NAMESPACE
+          echo ""
+          echo "Use port-forward to access Grafana locally:"
+          echo "kubectl -n $MONITORING_NAMESPACE port-forward svc/kube-prometheus-stack-grafana 3000:80"

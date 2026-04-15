@@ -17,7 +17,7 @@ The application is a simple visitor counter that increments a counter in Azure D
 - **CI/CD**: GitHub Actions
 - **IaC**: Terraform
 - **Ingress**: NGINX Ingress Controller with TLS
-- **Monitoring**: Application Insights
+- **Monitoring**: Prometheus, Grafana, Loki, and Promtail on AKS
 
 ## Prerequisites
 
@@ -111,9 +111,12 @@ The application is a simple visitor counter that increments a counter in Azure D
 
 ## Monitoring
 
-- Application Insights for telemetry
-- stdout logs collected by AKS
-- Health checks and probes configured
+- `kube-prometheus-stack` provides Prometheus and Grafana
+- `Loki` stores logs and `Promtail` ships pod logs
+- The app exposes Prometheus metrics at `/metrics`
+- GitHub Actions workflow `.github/workflows/monitoring.yml` installs the monitoring stack
+- The app deployment workflow applies `k8s/servicemonitor.yaml` automatically when the monitoring CRD is present
+- Health checks and probes are configured
 
 ## Scaling
 

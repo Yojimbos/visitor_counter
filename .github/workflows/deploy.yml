@@ -170,6 +170,14 @@ jobs:
           kubectl apply -f /tmp/ingress.yaml
           kubectl apply -f k8s/hpa.yaml
 
+      - name: Apply ServiceMonitor when monitoring stack is installed
+        run: |
+          if kubectl get crd servicemonitors.monitoring.coreos.com >/dev/null 2>&1; then
+            kubectl apply -f k8s/servicemonitor.yaml
+          else
+            echo "ServiceMonitor CRD not found, skipping application metrics registration."
+          fi
+
       - name: Wait for app rollout
         run: |
           kubectl rollout status deployment/visitor-counter -n $NAMESPACE --timeout=10m

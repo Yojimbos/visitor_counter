@@ -6,6 +6,7 @@ The project uses GitHub Actions for automated building and deployment:
 
 1. **Build Stage** (`build-and-push.yml`): Builds Docker image and pushes to Azure Container Registry
 2. **Deploy Stage** (`deploy.yml`): Deploys the latest image to AKS
+3. **Monitoring Stage** (`monitoring.yml`): Installs Prometheus, Grafana, Loki, and Promtail into AKS
 
 ## Image Tagging Strategy
 
@@ -43,6 +44,7 @@ AZURE_TENANT_ID          - Your Azure tenant ID
 AZURE_CLIENT_ID          - Service principal client ID
 AZURE_CLIENT_SECRET      - Service principal client secret
 AZURE_CREDENTIALS        - Full credentials JSON for Azure/login action
+GRAFANA_ADMIN_PASSWORD   - Admin password for Grafana
 ```
 
 **Generate `AZURE_CREDENTIALS`:**
@@ -136,6 +138,19 @@ kubectl apply -f k8s/
 3. **Deploy**: Automatically or on-demand, pulls latest image and deploys to AKS
 4. **Verify**: Rollout status is monitored, pods verified
 
+### Monitoring Installation
+
+Run the monitoring workflow after the AKS cluster is available:
+
+1. Open the `Install Monitoring Stack` workflow in GitHub Actions
+2. Start it manually, or let it run on changes under `infra/monitoring/**`
+3. The workflow installs:
+   - `kube-prometheus-stack`
+   - `Loki`
+   - `Promtail`
+
+After the monitoring stack is installed, the app deployment workflow automatically applies `k8s/servicemonitor.yaml` if the `ServiceMonitor` CRD exists.
+
 ## Monitoring Deployment
 
 ```bash
@@ -144,8 +159,19 @@ az aks get-credentials \
   --resource-group visitor-counter-rg \
   --name visitor-counter-aks
 
+# Install the monitoring stack from GitHub Actions first
+
+# Confirm the ServiceMonitor CRD exists
+kubectl get crd servicemonitors.monitoring.coreos.com
+
 # Check deployment status
 kubectl rollout status deployment/visitor-counter
+
+# Check that Prometheus can discover the app metrics
+kubectl get servicemonitor visitor-counter
+
+# Access Grafana locally
+kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80
 
 # View logs
 kubectl logs -l app=visitor-counter --tail=100 -f

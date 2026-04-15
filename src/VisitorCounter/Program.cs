@@ -1,4 +1,5 @@
 using Azure.Identity;
+using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +23,8 @@ if (!app.Environment.IsDevelopment())
 
 // app.UseHttpsRedirection();
 app.MapGet("/healthz", () => Results.Ok("ok"));
+app.UseHttpMetrics();
+app.MapMetrics();
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthorization();

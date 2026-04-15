@@ -1,10 +1,19 @@
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Npgsql;
+using Prometheus;
 
 namespace VisitorCounter.Pages;
 
 public class IndexModel : PageModel
 {
+    private static readonly Counter PageVisits = Metrics.CreateCounter(
+        "visitor_counter_page_visits_total",
+        "Total number of homepage requests handled by the application.");
+
+    private static readonly Gauge StoredVisitCount = Metrics.CreateGauge(
+        "visitor_counter_stored_visits",
+        "Current number of visit records stored in the database.");
+
     private readonly IConfiguration _configuration;
 
     public IndexModel(IConfiguration configuration)
@@ -16,6 +25,8 @@ public class IndexModel : PageModel
 
     public async Task OnGetAsync()
     {
+        PageVisits.Inc();
+
         var connectionString = _configuration.GetConnectionString("DefaultConnection");
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
@@ -31,5 +42,6 @@ public class IndexModel : PageModel
         // Get count
         cmd.CommandText = "SELECT COUNT(*) FROM visits";
         VisitCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        StoredVisitCount.Set(VisitCount);
     }
 }
