@@ -104,11 +104,24 @@ if (-not $applicationReachable) {
 }
 
 try {
-    $metricsResponse = Invoke-WebRequest -Uri "$url/metrics" -UseBasicParsing -TimeoutSec $requestTimeoutSeconds
-    if ($metricsResponse.StatusCode -ne 200) {
-        throw "Metrics endpoint returned status $($metricsResponse.StatusCode)."
-    }
-    Write-Host "Metrics endpoint is reachable."
+    $metricsUrl = "http://$ServiceName.$Namespace.svc.cluster.local/metrics"
+    $metricsProbeName = "metrics-check-" + ([guid]::NewGuid().ToString("N").Substring(0, 8))
+
+    kubectl run $metricsProbeName `
+        --rm `
+        --attach `
+        --restart=Never `
+        --image=curlimages/curl:8.8.0 `
+        -n $Namespace `
+        -- `
+        curl `
+        --silent `
+        --show-error `
+        --fail `
+        --max-time $requestTimeoutSeconds `
+        $metricsUrl | Out-Null
+
+    Write-Host "Metrics endpoint is reachable inside the cluster."
 }
 catch {
     throw "Metrics endpoint validation failed.`n$($_.Exception.Message)"
