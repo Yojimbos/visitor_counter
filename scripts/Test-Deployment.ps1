@@ -107,9 +107,9 @@ try {
     $metricsUrl = "http://$ServiceName.$Namespace.svc.cluster.local/metrics"
     $metricsProbeName = "metrics-check-" + ([guid]::NewGuid().ToString("N").Substring(0, 8))
 
+    kubectl delete pod $metricsProbeName -n $Namespace --ignore-not-found=true | Out-Null
+
     kubectl run $metricsProbeName `
-        --rm `
-        --attach `
         --restart=Never `
         --image=curlimages/curl:8.8.0 `
         -n $Namespace `
@@ -121,10 +121,17 @@ try {
         --max-time $requestTimeoutSeconds `
         $metricsUrl | Out-Null
 
+    kubectl wait --for=condition=Ready "pod/$metricsProbeName" -n $Namespace --timeout=30s | Out-Null
+    kubectl wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$metricsProbeName" -n $Namespace --timeout=30s | Out-Null
+
     Write-Host "Metrics endpoint is reachable inside the cluster."
 }
 catch {
+    kubectl logs $metricsProbeName -n $Namespace --tail=100 2>$null
     throw "Metrics endpoint validation failed.`n$($_.Exception.Message)"
+}
+finally {
+    kubectl delete pod $metricsProbeName -n $Namespace --ignore-not-found=true | Out-Null
 }
 
 if ($metricsAvailable) {
