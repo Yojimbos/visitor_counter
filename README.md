@@ -26,6 +26,7 @@ A .NET 8 Razor Pages application that increments a visit counter in Azure Databa
 
 ## CI/CD Workflows
 
+- [terraform.yaml](/c:/repositories/visitor_counter/.github/workflows/terraform.yaml:1): validates, imports existing Azure resources into local CI state when needed, plans Terraform changes, and applies infrastructure updates on push.
 - [build-and-push.yml](/c:/repositories/visitor_counter/.github/workflows/build-and-push.yml:1): runs unit tests, builds the app image, and pushes it to ACR.
 - [deploy.yml](/c:/repositories/visitor_counter/.github/workflows/deploy.yml:1): installs or updates ingress and cert-manager, deploys the app to AKS, applies backup and monitoring resources when available, and runs deployment verification.
 - [monitoring.yml](/c:/repositories/visitor_counter/.github/workflows/monitoring.yml:1): installs `kube-prometheus-stack`, Loki, and Promtail into the `monitoring` namespace.
@@ -41,8 +42,24 @@ A .NET 8 Razor Pages application that increments a visit counter in Azure Databa
 
 - `AZURE_CREDENTIALS`
 - `AZURE_SUBSCRIPTION_ID`
+- `AZURE_CLIENT_ID`
 - `GRAFANA_ADMIN_PASSWORD`
 - `LETSENCRYPT_EMAIL`
+
+## Secrets Currently Used By Workflows
+
+- `AZURE_CREDENTIALS`: used by `build-and-push.yml`, `deploy.yml`, `monitoring.yml`, and `terraform.yaml`
+- `AZURE_SUBSCRIPTION_ID`: used by `build-and-push.yml`, `deploy.yml`, and `monitoring.yml`
+- `AZURE_CLIENT_ID`: used by `terraform.yaml` during import of the current Key Vault access policy
+- `GRAFANA_ADMIN_PASSWORD`: used by `monitoring.yml`
+- `LETSENCRYPT_EMAIL`: used by `deploy.yml`
+
+## Legacy Or Possibly Redundant Secrets
+
+- `AZURE_TENANT_ID`: not referenced directly by the current workflows
+- `AZURE_CLIENT_SECRET`: not referenced directly by the current workflows
+
+Those two may still be present because they are often embedded inside `AZURE_CREDENTIALS`, but as standalone secrets they are currently not required by the repository workflows.
 
 ## Local Development
 
