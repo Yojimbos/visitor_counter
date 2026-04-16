@@ -70,6 +70,6 @@ Those two may still be present because they are often embedded inside `AZURE_CRE
 
 ## Operations
 
-- Monitoring setup and access: [infra/monitoring/README.md](/c:/repositories/visitor_counter/infra/monitoring/README.md:1)
+- Monitoring setup and access: [docs/MONITORING.md](/c:/repositories/visitor_counter/docs/MONITORING.md:1)
 - Build and deployment flow: [docs/BUILD_AND_DEPLOYMENT.md](/c:/repositories/visitor_counter/docs/BUILD_AND_DEPLOYMENT.md:1)
 - Terraform bootstrap and backend setup: [docs/TERRAFORM_BOOTSTRAP.md](/c:/repositories/visitor_counter/docs/TERRAFORM_BOOTSTRAP.md:1)
