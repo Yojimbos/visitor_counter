@@ -1,6 +1,8 @@
 grafana:
   enabled: true
   adminUser: admin
+  deploymentStrategy:
+    type: Recreate
   service:
     type: ClusterIP
   persistence:
