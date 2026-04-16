@@ -1,135 +1,58 @@
 # Visitor Counter Demo
 
-A .NET 8 web application demonstrating DevOps practices with Azure cloud services.
+A .NET 8 Razor Pages application that increments a visit counter in Azure Database for PostgreSQL and demonstrates a small but production-shaped Azure platform around it.
 
 ## Architecture
 
-The application is a simple visitor counter that increments a counter in Azure Database for PostgreSQL on each page visit and displays the total count with a message.
+- Application: ASP.NET Core Razor Pages
+- Database: Azure Database for PostgreSQL Flexible Server
+- Containers: Docker multi-stage build
+- Registry: Azure Container Registry
+- Orchestration: Azure Kubernetes Service
+- Secrets: Azure Key Vault
+- Infrastructure as Code: Terraform
+- Ingress: `ingress-nginx` with cert-manager and Let's Encrypt
+- Monitoring: Prometheus, Grafana, Loki, and Promtail on AKS
+- Backups: Azure native PostgreSQL retention plus weekly logical dumps to Blob Storage
 
-### Components
+## Current Platform Baseline
 
-- **Application**: ASP.NET Core Razor Pages app
-- **Database**: Azure Database for PostgreSQL Flexible Server
-- **Containerization**: Docker with multi-stage build
-- **Registry**: Azure Container Registry (ACR)
-- **Orchestration**: Azure Kubernetes Service (AKS)
-- **Secrets**: Azure Key Vault
-- **CI/CD**: GitHub Actions
-- **IaC**: Terraform
-- **Ingress**: NGINX Ingress Controller with TLS
-- **Monitoring**: Prometheus, Grafana, Loki, and Promtail on AKS
+- AKS runs a 2-node default pool as the cheapest reasonable HA baseline.
+- `ingress-nginx` runs with 2 controller replicas, pod spread, anti-affinity, and a health probe path tuned for Azure Load Balancer.
+- PostgreSQL native backup retention is explicitly set to 7 days.
+- Weekly logical PostgreSQL backups are exported every Sunday at 03:00 UTC to geo-redundant Blob Storage.
+- Key Vault purge protection is enabled.
+- PostgreSQL private networking is prepared in Terraform behind a feature flag, but it is not enabled in the current environment.
 
-## Prerequisites
+## CI/CD Workflows
 
-- Azure subscription
-- Azure CLI
-- Terraform
-- Docker
-- kubectl
-- .NET 8 SDK
+- [build-and-push.yml](/c:/repositories/visitor_counter/.github/workflows/build-and-push.yml:1): runs unit tests, builds the app image, and pushes it to ACR.
+- [deploy.yml](/c:/repositories/visitor_counter/.github/workflows/deploy.yml:1): installs or updates ingress and cert-manager, deploys the app to AKS, applies backup and monitoring resources when available, and runs deployment verification.
+- [monitoring.yml](/c:/repositories/visitor_counter/.github/workflows/monitoring.yml:1): installs `kube-prometheus-stack`, Loki, and Promtail into the `monitoring` namespace.
 
-## Setup Instructions
+## Tests
 
-### 1. Infrastructure Provisioning
+- Unit tests live in [tests/VisitorCounter.Tests](/c:/repositories/visitor_counter/tests/VisitorCounter.Tests/VisitorCounter.Tests.csproj:1).
+- The build workflow runs `dotnet test visitor_counter.sln --configuration Release`.
+- Deployment verification is implemented in [scripts/Test-Deployment.ps1](/c:/repositories/visitor_counter/scripts/Test-Deployment.ps1:1).
+- The smoke test checks the public app URL and verifies `/metrics` from inside the cluster through the app service.
 
-1. Create a storage account for Terraform state:
-   ```bash
-   az group create --name tfstate --location eastus
-   az storage account create --name tfstate1234 --resource-group tfstate --location eastus --sku Standard_LRS
-   az storage container create --name tfstate --account-name tfstate1234
-   ```
+## Required GitHub Secrets
 
-2. Update `infra/terraform/main.tf` backend configuration with your storage account details.
-
-3. Run Terraform:
-   ```bash
-   cd infra/terraform
-   terraform init
-   terraform plan
-   terraform apply
-   ```
-
-### 2. Configure Secrets
-
-1. Add secrets to Azure Key Vault (done via Terraform).
-
-2. For GitHub Actions, add the following secrets to your repository:
-   - `AZURE_SUBSCRIPTION_ID`: Your Azure subscription ID
-   - `AZURE_TENANT_ID`: Your Azure tenant ID
-   - `AZURE_CLIENT_ID`: Service principal client ID
-   - `AZURE_CLIENT_SECRET`: Service principal client secret
-   - `AZURE_CREDENTIALS`: Service principal credentials (JSON format)
-
-   Generate credentials:
-   ```bash
-   az ad sp create-for-rbac --name "github-actions" \
-     --role Contributor \
-     --scopes /subscriptions/{SUBSCRIPTION_ID} \
-     --json-auth
-   ```
-
-### 3. Build and Deploy
-
-**Automated via GitHub Actions:**
-- Push to `main` or `develop` branch triggers build pipeline
-- Image is tagged with **timestamp + commit hash** (e.g., `20260410-143022-7a85828`)
-- Pipeline automatically deploys to AKS
-
-**Manual deployment instructions:** See [BUILD_AND_DEPLOYMENT.md](docs/BUILD_AND_DEPLOYMENT.md)
-
-### 4. Image Tagging Strategy
-
-- **Production**: Timestamp + short commit hash (e.g., `visitorcounteracr.azurecr.io/visitor-counter:20260410-143022-7a85828`)
-- ✅ Shows build time and commit reference
-- ✅ Easy to identify newer versions by timestamp
-- ✅ Safe for production (no `latest` tag)
-- ✅ Full deployment history in git commits
-
-### 5. DNS and TLS
-
-
-1. Update `k8s/ingress.yaml` with your domain.
-2. Install cert-manager and NGINX Ingress Controller on AKS.
-3. Configure DNS to point to the ingress IP.
+- `AZURE_CREDENTIALS`
+- `AZURE_SUBSCRIPTION_ID`
+- `GRAFANA_ADMIN_PASSWORD`
+- `LETSENCRYPT_EMAIL`
 
 ## Local Development
 
-1. Install PostgreSQL locally or use a container.
-2. Update `appsettings.json` with connection string.
-3. Run the app:
-   ```bash
-   cd src/VisitorCounter
-   dotnet run
-   ```
+1. Install the .NET 8 SDK.
+2. Provide a PostgreSQL connection string through configuration or secrets.
+3. Run the app from `src/VisitorCounter` with `dotnet run`.
+4. Run tests from the repository root with `dotnet test visitor_counter.sln`.
 
-## Security Notes
+## Operations
 
-- Non-root containers
-- RBAC for cluster access
-- Secrets stored in Key Vault
-- Image vulnerability scanning (add to pipeline)
-- Key Vault purge protection enabled
-
-## Database Resilience
-
-- Native PostgreSQL backups are explicitly retained for 7 days in Terraform
-- Weekly logical backups are exported to private Blob Storage with geo-redundant replication
-- Blob lifecycle management removes old backup files automatically
-- Private PostgreSQL networking is prepared in Terraform behind a migration flag because the current database region and AKS VNet region do not yet match
-
-## Monitoring
-
-- `kube-prometheus-stack` provides Prometheus and Grafana
-- `Loki` stores logs and `Promtail` ships pod logs
-- The app exposes Prometheus metrics at `/metrics`
-- GitHub Actions workflow `.github/workflows/monitoring.yml` installs the monitoring stack
-- The app deployment workflow applies `k8s/servicemonitor.yaml` automatically when the monitoring CRD is present
-- A Kubernetes `CronJob` creates a weekly PostgreSQL logical backup and uploads it to Azure Blob Storage
-- Health checks and probes are configured
-
-## Scaling
-
-- HPA configured for CPU/memory scaling
-- Can scale from 1 to 10 replicas
-- AKS default node pool runs with 2 nodes as the cheapest HA baseline
-- ingress-nginx runs with 2 controller replicas, pod spread, and disruption protection
+- Monitoring setup and access: [infra/monitoring/README.md](/c:/repositories/visitor_counter/infra/monitoring/README.md:1)
+- Build and deployment flow: [docs/BUILD_AND_DEPLOYMENT.md](/c:/repositories/visitor_counter/docs/BUILD_AND_DEPLOYMENT.md:1)
+- Terraform bootstrap and backend setup: [docs/TERRAFORM_BOOTSTRAP.md](/c:/repositories/visitor_counter/docs/TERRAFORM_BOOTSTRAP.md:1)

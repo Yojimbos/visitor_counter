@@ -1,22 +1,22 @@
 # Monitoring Stack
 
-This directory contains Helm values and deployment guidance for the cluster-level monitoring stack running in AKS.
+This directory contains Helm values for the AKS monitoring stack.
 
 ## Components
 
-- `kube-prometheus-stack` for Prometheus, Grafana, kube-state-metrics, and node exporter
+- `kube-prometheus-stack` for Prometheus and Grafana
 - `loki` for log storage
-- `promtail` for shipping pod logs to Loki
+- `promtail` for pod log shipping
 
-## Layout
+## Files
 
-- `kube-prometheus-stack-values.yaml` configures Prometheus and Grafana
-- `loki-values.yaml` configures Loki in single-binary mode for a small production cluster
-- `promtail-values.yaml` configures log collection
+- [kube-prometheus-stack-values.yaml](/c:/repositories/visitor_counter/infra/monitoring/kube-prometheus-stack-values.yaml:1)
+- [loki-values.yaml](/c:/repositories/visitor_counter/infra/monitoring/loki-values.yaml:1)
+- [promtail-values.yaml](/c:/repositories/visitor_counter/infra/monitoring/promtail-values.yaml:1)
 
-## Install
+## Installation
 
-The recommended path is the GitHub Actions workflow in `.github/workflows/monitoring.yml`.
+Use [monitoring.yml](/c:/repositories/visitor_counter/.github/workflows/monitoring.yml:1).
 
 Required GitHub secrets:
 
@@ -24,31 +24,34 @@ Required GitHub secrets:
 - `AZURE_SUBSCRIPTION_ID`
 - `GRAFANA_ADMIN_PASSWORD`
 
+The workflow installs the stack into the `monitoring` namespace.
+
 ## Access
 
-Grafana is installed as a `ClusterIP` service by default.
+Grafana is exposed as a `ClusterIP` service.
 
-To access it locally:
+Run:
 
 ```bash
 kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80
 ```
 
-Then open `http://localhost:3000` and sign in with:
+Then open `http://localhost:3000`.
+
+Credentials:
 
 - user: `admin`
 - password: the value of `GRAFANA_ADMIN_PASSWORD`
 
-To verify Loki is connected, open Grafana and check the `Loki` datasource.
+## Application Metrics
 
-## App Metrics Next Step
+The app exposes Prometheus metrics at `/metrics`, but they are scraped internally through the Kubernetes service, not through the public ingress hostname.
 
-The application is prepared to expose Prometheus metrics at `/metrics`.
+[k8s/servicemonitor.yaml](/c:/repositories/visitor_counter/k8s/servicemonitor.yaml:1) is applied automatically by [deploy.yml](/c:/repositories/visitor_counter/.github/workflows/deploy.yml:1) when the `ServiceMonitor` CRD exists.
 
-After the monitoring stack is installed and the application is redeployed:
+## What To Check
 
-```bash
-kubectl apply -f k8s/servicemonitor.yaml
-```
-
-That manifest is kept separate from the main app deploy because it depends on CRDs provided by `kube-prometheus-stack`.
+- `kubectl get servicemonitor visitor-counter -n default`
+- `kubectl get pods -n monitoring`
+- `kubectl get svc kube-prometheus-stack-grafana -n monitoring`
+- In Grafana, verify both `Prometheus` and `Loki` datasources

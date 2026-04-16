@@ -2,216 +2,96 @@
 
 ## Overview
 
-The project uses GitHub Actions for automated building and deployment:
+The repository uses three GitHub Actions workflows:
 
-1. **Build Stage** (`build-and-push.yml`): Builds Docker image and pushes to Azure Container Registry
-2. **Deploy Stage** (`deploy.yml`): Deploys the latest image to AKS
-3. **Monitoring Stage** (`monitoring.yml`): Installs Prometheus, Grafana, Loki, and Promtail into AKS
+1. [build-and-push.yml](/c:/repositories/visitor_counter/.github/workflows/build-and-push.yml:1) builds the image and pushes it to ACR.
+2. [deploy.yml](/c:/repositories/visitor_counter/.github/workflows/deploy.yml:1) deploys the latest image to AKS and verifies the rollout.
+3. [monitoring.yml](/c:/repositories/visitor_counter/.github/workflows/monitoring.yml:1) installs the cluster monitoring stack.
 
-## Image Tagging Strategy
+## Build Workflow
 
-**Best Practice: Timestamp + Short Commit Hash**
+The build workflow triggers on pushes to `main` or `develop` when application code or the workflow itself changes.
 
-- Each image is tagged with timestamp + 7-character commit hash
-- Example: `visitorcounteracr.azurecr.io/visitor-counter:20260410-143022-7a85828`
-- Benefits:
-  - ✅ Shows build time (when image was created)
-  - ✅ Includes commit reference for traceability
-  - ✅ Easy to identify newer versions by timestamp
-  - ✅ Safe alternative to `latest` tag in production
-  - ✅ Works perfectly with CI/CD
+It performs these steps:
 
-**Why NOT use full commit hash:**
-- ❌ Too long and hard to read
-- ❌ No indication of build time
-- ❌ Difficult to compare versions
+1. Restore and run `dotnet test visitor_counter.sln --configuration Release`.
+2. Generate an image tag from the current UTC timestamp.
+3. Log in to Azure and ACR.
+4. Build and push two tags:
+   - timestamp tag, for example `visitorcounteracr.azurecr.io/visitor-counter:20260416-101530`
+   - `latest`
 
-**Why NOT use `latest` tag:**
-- ❌ No version tracking
-- ❌ Risky in production (unpredictable rollouts)
-- ❌ Hard to debug issues
-- ❌ Can cause race conditions in deployments
+The deployment workflow selects the newest repository tag by push time.
 
-## Setup Instructions
+## Deploy Workflow
 
-### 1. Configure GitHub Secrets
+The deploy workflow runs manually or after a successful build workflow on `main`.
 
-Add the following secrets to your GitHub repository:
+It performs these steps:
 
-```
-AZURE_SUBSCRIPTION_ID    - Your Azure subscription ID
-AZURE_TENANT_ID          - Your Azure tenant ID  
-AZURE_CLIENT_ID          - Service principal client ID
-AZURE_CLIENT_SECRET      - Service principal client secret
-AZURE_CREDENTIALS        - Full credentials JSON for Azure/login action
-GRAFANA_ADMIN_PASSWORD   - Admin password for Grafana
-```
+1. Log in to Azure and fetch AKS credentials.
+2. Install or update `ingress-nginx` using [infra/ingress/ingress-nginx-values.yaml](/c:/repositories/visitor_counter/infra/ingress/ingress-nginx-values.yaml:1).
+3. Install or update cert-manager.
+4. Read the latest app image tag from ACR.
+5. Read database and backup settings from Key Vault.
+6. Render and apply the Kubernetes manifests.
+7. Apply [k8s/backup-cronjob.yaml](/c:/repositories/visitor_counter/k8s/backup-cronjob.yaml:1) when backup storage is configured.
+8. Apply [k8s/servicemonitor.yaml](/c:/repositories/visitor_counter/k8s/servicemonitor.yaml:1) when the `ServiceMonitor` CRD is present.
+9. Wait for the app rollout and TLS secret.
+10. Run [scripts/Test-Deployment.ps1](/c:/repositories/visitor_counter/scripts/Test-Deployment.ps1:1).
 
-**Generate `AZURE_CREDENTIALS`:**
-```bash
-az ad sp create-for-rbac \
-  --name "github-actions" \
-  --role Contributor \
-  --scopes /subscriptions/{SUBSCRIPTION_ID} \
-  --json-auth
-```
+## Deployment Verification
 
-### 2. Infrastructure Setup (Terraform)
+The deployment smoke test validates:
 
-```bash
-cd infra/terraform
-terraform init
-terraform plan
-terraform apply
-```
+- deployment, service, ingress, and TLS secret exist
+- the public site returns HTTP 200
+- `/metrics` is reachable inside the cluster through `visitor-counter-service.default.svc.cluster.local`
+- `ServiceMonitor` exists when monitoring is installed
+- the weekly backup `CronJob` exists when backup storage is configured
 
-Terraform creates:
-- ✅ Azure Container Registry (ACR)
-- ✅ Azure Kubernetes Service (AKS)
-- ✅ Azure Key Vault
-- ✅ PostgreSQL Flexible Server
-- ✅ RBAC: AKS can pull images from ACR (AcrPull role)
+## Monitoring Workflow
 
-### CI/CD Terraform Configuration
+The monitoring workflow runs manually or on pushes to `main` when files under `infra/monitoring/**` or the workflow file itself change.
 
-For CI/CD pipelines, use the local backend to avoid authentication issues:
+It installs:
 
-1. **Copy the local backend file:**
-   ```bash
-   cp infra/terraform/backend.local.tf infra/terraform/backend.tf
-   ```
+- `kube-prometheus-stack`
+- `loki`
+- `promtail`
 
-2. **Run Terraform in CI/CD:**
-   ```bash
-   cd infra/terraform
-   terraform init
-   terraform plan -out=tfplan
-   terraform apply tfplan
-   ```
-
-3. **For production deployments**, switch back to Azure backend:
-   ```bash
-   git checkout infra/terraform/backend.tf  # Restore original
-   terraform init -reconfigure  # Reinitialize with Azure backend
-   ```
-
-**Note**: The `backend.local.tf` file is configured for CI/CD use with managed identity.
-
-### 3. Kubernetes Configuration
-
-Secret values are stored in `k8s/secret.yaml`:
-```yaml
-DB_HOST: visitor-counter-postgres.postgres.database.azure.com
-DB_USER: postgresadmin
-DB_PASSWORD: <from-terraform-output>
-```
-
-## Image Deployment Workflow
-
-### Manual Push (Testing)
-
-Build locally:
-```bash
-# Build image with git commit hash
-GIT_HASH=$(git rev-parse --short HEAD)
-docker build -t visitorcounteracr.azurecr.io/visitor-counter:${TIMESTAMP}-${SHORT_COMMIT} \
-  ./src/VisitorCounter
-
-# Push to ACR
-az acr login --name visitorcounteracr
-docker push visitorcounteracr.azurecr.io/visitor-counter:${TIMESTAMP}-${SHORT_COMMIT}
-```
-
-Update deployment:
-```bash
-# Replace placeholder in deployment.yaml
-sed -i "s/\$(GIT_COMMIT_HASH)/${GIT_HASH}/g" k8s/deployment.yaml
-
-# Deploy to AKS
-kubectl apply -f k8s/
-```
-
-### Automated Deployment (GitHub Actions)
-
-1. **Trigger**: Push to `main` or `develop` branch
-2. **Build**: GitHub Actions builds and pushes image to ACR with git commit hash tag
-3. **Deploy**: Automatically or on-demand, pulls latest image and deploys to AKS
-4. **Verify**: Rollout status is monitored, pods verified
-
-### Monitoring Installation
-
-Run the monitoring workflow after the AKS cluster is available:
-
-1. Open the `Install Monitoring Stack` workflow in GitHub Actions
-2. Start it manually, or let it run on changes under `infra/monitoring/**`
-3. The workflow installs:
-   - `kube-prometheus-stack`
-   - `Loki`
-   - `Promtail`
-
-After the monitoring stack is installed, the app deployment workflow automatically applies `k8s/servicemonitor.yaml` if the `ServiceMonitor` CRD exists.
-
-## Monitoring Deployment
+Grafana stays internal as a `ClusterIP` service. Access it locally with:
 
 ```bash
-# Get AKS credentials
-az aks get-credentials \
-  --resource-group visitor-counter-rg \
-  --name visitor-counter-aks
-
-# Install the monitoring stack from GitHub Actions first
-
-# Confirm the ServiceMonitor CRD exists
-kubectl get crd servicemonitors.monitoring.coreos.com
-
-# Check deployment status
-kubectl rollout status deployment/visitor-counter
-
-# Check that Prometheus can discover the app metrics
-kubectl get servicemonitor visitor-counter
-
-# Access Grafana locally
 kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80
-
-# View logs
-kubectl logs -l app=visitor-counter --tail=100 -f
-
-# Check image version
-kubectl get deployment visitor-counter -o jsonpath='{.spec.template.spec.containers[0].image}'
 ```
 
-## Security Considerations
+Then open `http://localhost:3000` and sign in with:
 
-- ✅ AKS has `AcrPull` role for ACR access (RBAC)
-- ✅ No hardcoded credentials in images
-- ✅ Secrets stored in Azure Key Vault
-- ✅ Container runs as non-root user
-- ✅ Resource limits enforced
+- user: `admin`
+- password: the value of `GRAFANA_ADMIN_PASSWORD`
+
+## Required GitHub Secrets
+
+- `AZURE_CREDENTIALS`
+- `AZURE_SUBSCRIPTION_ID`
+- `GRAFANA_ADMIN_PASSWORD`
+- `LETSENCRYPT_EMAIL`
+
+## Manual Verification Commands
+
+```bash
+kubectl get nodes -o wide
+kubectl get pods -n ingress-nginx -o wide
+kubectl get ingress,certificate,servicemonitor,cronjob -A
+kubectl get deployment visitor-counter -n default -o jsonpath='{.spec.template.spec.containers[0].image}'
+```
 
 ## Troubleshooting
 
-**Issue**: Image pull fails
-```bash
-# Solution: Verify AKS RBAC to ACR
-az role assignment list \
-  --scope /subscriptions/{ID}/resourceGroups/visitor-counter-rg/providers/Microsoft.ContainerRegistry/registries/visitorcounteracr
-```
+If deployment verification fails:
 
-**Issue**: latest tag not updating
-```bash
-# Solution: Use specific git commit hash in deployment.yaml
-# GitHub Actions automatically updates this
-```
-
-**Issue**: Deployment stuck in ImagePullBackOff
-```bash
-# Check ACR connectivity from AKS node pool
-kubectl run -it --image=mcr.microsoft.com/azure-cli:latest debug --restart=Never -- bash
-```
-
-## Environment Variables
-
-The deployment uses `imagePullPolicy: Always` to ensure:
-- Fresh image pull on every restart
-- Correct version deployed
-- No stale images in node cache
+1. Check ingress and certificate state.
+2. Check `ingress-nginx` controller health and external IP.
+3. Check whether the app service resolves and responds inside the cluster.
+4. Review the `Smoke test` step output from the deploy workflow, because it now prints targeted diagnostics instead of silently waiting.
