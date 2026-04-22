@@ -13,6 +13,9 @@ env:
   AKS_RESOURCE_GROUP: visitor-counter-rg
   MONITORING_NAMESPACE: monitoring
 
+permissions:
+  contents: read
+
 jobs:
   install-monitoring:
     runs-on: ubuntu-latest
@@ -50,12 +53,14 @@ jobs:
           helm repo update
 
       - name: Install kube-prometheus-stack
+        env:
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
         run: |
           helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
             --namespace $MONITORING_NAMESPACE \
             --create-namespace \
             --values infra/monitoring/kube-prometheus-stack-values.yaml \
-            --set grafana.adminPassword='${{ secrets.GRAFANA_ADMIN_PASSWORD }}'
+            --set grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD"
 
       - name: Install Loki
         run: |

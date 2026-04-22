@@ -15,6 +15,7 @@ RUN dotnet publish "VisitorCounter.csproj" -c Release -o /app/publish /p:UseAppH
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+USER $APP_UID
 ENTRYPOINT ["dotnet", "VisitorCounter.dll"]
 
 ENV ASPNETCORE_URLS=http://+:5000

@@ -10,6 +10,9 @@ on:
     paths:
       - 'infra/terraform/**'
 
+permissions:
+  contents: read
+
 jobs:
   terraform:
     runs-on: ubuntu-latest
@@ -153,11 +156,11 @@ jobs:
         fi
       working-directory: infra/terraform
     - name: Terraform Plan
-      run: terraform plan
+      run: terraform plan -input=false
       working-directory: infra/terraform
     - name: Terraform Apply
       if: github.event_name == 'push'
-      run: terraform apply -auto-approve
+      run: terraform apply -input=false -auto-approve
       working-directory: infra/terraform
     - name: Restore backend
       if: always()

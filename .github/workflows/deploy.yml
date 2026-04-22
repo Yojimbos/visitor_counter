@@ -13,6 +13,9 @@ env:
   IMAGE_NAME: visitor-counter
   NAMESPACE: default
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -121,8 +124,10 @@ jobs:
         run: |
           KV=$(az keyvault list --resource-group $AKS_RESOURCE_GROUP --query "[0].name" -o tsv)
           PASS=$(az keyvault secret show --vault-name $KV --name postgres-password --query value -o tsv)
+          echo "::add-mask::$PASS"
 
           CONN="Host=visitor-counter-postgres-ne.postgres.database.azure.com;Database=visitorcounter;Username=postgresadmin;Password=${PASS};SSL Mode=Require;Trust Server Certificate=true;"
+          echo "::add-mask::$CONN"
 
           {
             echo "pass<<EOF"
@@ -146,6 +151,10 @@ jobs:
             exit 0
           fi
 
+          echo "::add-mask::$ACCOUNT"
+          echo "::add-mask::$KEY"
+          echo "::add-mask::$CONTAINER"
+
           {
             echo "enabled=true"
             echo "account<<EOF"
@@ -160,26 +169,31 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create Kubernetes secret
+        env:
+          DB_PASSWORD: ${{ steps.db.outputs.pass }}
+          DEFAULT_CONNECTION: ${{ steps.db.outputs.conn }}
         run: |
-          kubectl delete secret visitor-counter-secret -n $NAMESPACE --ignore-not-found=true
-
           kubectl create secret generic visitor-counter-secret \
-            -n $NAMESPACE \
+            -n "$NAMESPACE" \
             --from-literal=DB_HOST=visitor-counter-postgres-ne.postgres.database.azure.com \
             --from-literal=DB_USER=postgresadmin \
-            --from-literal=DB_PASSWORD='${{ steps.db.outputs.pass }}' \
-            --from-literal=ConnectionStrings__DefaultConnection='${{ steps.db.outputs.conn }}'
+            --from-literal=DB_PASSWORD="$DB_PASSWORD" \
+            --from-literal=ConnectionStrings__DefaultConnection="$DEFAULT_CONNECTION" \
+            --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Create backup secret
         if: ${{ steps.backup.outputs.enabled == 'true' }}
+        env:
+          BACKUP_STORAGE_ACCOUNT: ${{ steps.backup.outputs.account }}
+          BACKUP_STORAGE_KEY: ${{ steps.backup.outputs.key }}
+          BACKUP_STORAGE_CONTAINER: ${{ steps.backup.outputs.container }}
         run: |
-          kubectl delete secret visitor-counter-backup-secret -n $NAMESPACE --ignore-not-found=true
-
           kubectl create secret generic visitor-counter-backup-secret \
-            -n $NAMESPACE \
-            --from-literal=BACKUP_STORAGE_ACCOUNT='${{ steps.backup.outputs.account }}' \
-            --from-literal=BACKUP_STORAGE_KEY='${{ steps.backup.outputs.key }}' \
-            --from-literal=BACKUP_STORAGE_CONTAINER='${{ steps.backup.outputs.container }}'
+            -n "$NAMESPACE" \
+            --from-literal=BACKUP_STORAGE_ACCOUNT="$BACKUP_STORAGE_ACCOUNT" \
+            --from-literal=BACKUP_STORAGE_KEY="$BACKUP_STORAGE_KEY" \
+            --from-literal=BACKUP_STORAGE_CONTAINER="$BACKUP_STORAGE_CONTAINER" \
+            --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Render manifests
         run: |

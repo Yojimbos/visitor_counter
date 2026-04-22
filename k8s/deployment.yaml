@@ -12,10 +12,19 @@ spec:
       labels:
         app: visitor-counter
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: visitor-counter
         image: visitorcounteracr.azurecr.io/visitor-counter:latest
         imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         env:
         - name: ASPNETCORE_URLS
           value: "http://+:5000"
@@ -59,6 +68,3 @@ spec:
           limits:
             memory: "256Mi"
             cpu: "200m"
-      securityContext:
-        runAsNonRoot: false
-        runAsUser: 0

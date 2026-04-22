@@ -17,6 +17,7 @@ builder.Services.AddScoped<IVisitRepository, NpgsqlVisitRepository>();
 builder.Services.AddScoped<VisitCounterService>();
 
 var app = builder.Build();
+var logger = app.Logger;
 
 if (!app.Environment.IsDevelopment())
 {
@@ -32,4 +33,11 @@ app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthorization();
 app.MapRazorPages();
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    logger.LogInformation(
+        "VisitorCounter started in {Environment}. Connection string configured: {IsConfigured}",
+        app.Environment.EnvironmentName,
+        !string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("DefaultConnection")));
+});
 app.Run();
